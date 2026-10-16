@@ -282,7 +282,6 @@ body.projection-mode .board-stage .live-center .round-heading{font-size:clamp(22
 @media(max-width:550px){.historic-rule-fields{grid-template-columns:1fr}.historic-rule-editor{padding:14px}.historic-compare-head,.historic-compare-row{grid-template-columns:minmax(74px,1.2fr) repeat(3,minmax(60px,1fr));gap:3px}.historic-compare-row{font-size:12px}}
 /* 共有閲覧モード：入力系の操作はUIからも隠し、Supabase側のRLSで書込も禁止 */
 body.viewer [data-action="goto"][data-view="entry"],
-body.viewer [data-action="goto"][data-view="sticks"],
 body.viewer [data-action="goto"][data-view="members"],
 body.viewer [data-action="goto"][data-view="rules"],
 body.viewer [data-action="edit-game"],body.viewer [data-action="delete-game"],
@@ -297,6 +296,17 @@ body.viewer [data-action="new-point"],body.viewer [data-action="member-edit"]{di
 .shared-form input{width:100%;padding:12px;border-radius:9px;border:1px solid #c9dace}
 .shared-config-note{font-size:12px;color:#576d60;line-height:1.8}
 @media(max-width:650px){.admin-auth .btn{padding:7px 9px;min-height:34px}.admin-auth .shared-status{font-size:10px}}
+/* v19: 入力操作を持たない閲覧専用の対局観戦画面 */
+.spectator-status{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;background:#e9f3ed;border:1px solid #c9dfd1;border-radius:12px;padding:13px 16px;margin-bottom:16px}
+.spectator-status strong{color:#24624d}
+.spectator-status span{font-size:12px;color:#587668}
+.spectator-rankings{margin-top:13px}
+.spectator-rank-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line)}
+.spectator-rank-row:last-child{border-bottom:0}
+.spectator-rank-row .playerline{gap:7px}
+.spectator-rank-row strong{white-space:nowrap;font-variant-numeric:tabular-nums}
+body.viewer .board-stage .live-player .live-buttons{display:none!important}
+@media(max-width:650px){.spectator-status{padding:11px 12px}.spectator-rank-row strong{font-size:13px}}
 </style>
 <script id="janlog-config" type="application/json">{"url":"https://epicqgpirzgtssqsswnp.supabase.co","key":"sb_publishable_vD6EitqVQY4iXn_wxm5PFw_t435hSIH"}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -322,6 +332,7 @@ let view='overview',draft,memberEdit=null,activeFilter='all',roundStatsFilter='a
 /* 共有データ保存。すべての変更は認証済み管理者からSupabaseに送信する。
    以前のlocalStorageは消去せず、旧記録を明示的に移行できるよう残しておく。 */
 let db=null,authUser=null,cloudReady=false,loadError='',writeError='',lastSynced=defaults(),writeChain=Promise.resolve(),writeRevision=0;
+let lastRemoteJson='',spectatorPollBusy=false;
 const configTag=document.getElementById('janlog-config');
 const originalHtml='<!doctype html>\n'+document.documentElement.outerHTML;
 const CONFIG_CACHE='janlog-public-config-v1';
@@ -386,11 +397,34 @@ async function loadCloud(){
   const {data,error}=await db.from('mahjong_state').select('data').eq('id',1).single();
   if(error)throw error;
   const loaded=normalizeState(data.data);
-  st=loaded;lastSynced=clone(loaded);cloudReady=true;writeError='';initialDraft();view=isAdmin()&&view==='login'?'overview':view;
-  if(!isAdmin()&&!['overview','stats','login'].includes(view))view='overview';
+  st=loaded;lastSynced=clone(loaded);lastRemoteJson=JSON.stringify(data.data);cloudReady=true;writeError='';initialDraft();view=isAdmin()&&view==='login'?'overview':view;
+  if(!isAdmin()&&!['overview','stats','sticks','login'].includes(view))view='overview';
  }catch(e){loadError=e.message||String(e);cloudReady=false}
  render();
 }
+// 公開閲覧中は定期的に最新の点棒状態を読み込む。管理者の入力途中のフォームには触れない。
+// 無変更なら再描画せず、他人による操作の禁止は従来どおりSupabaseのRLSで強制する。
+async function refreshSpectator(){
+ if(!db||!cloudReady||isAdmin()||document.hidden||spectatorPollBusy)return;
+ spectatorPollBusy=true;
+ try{
+  const {data,error}=await db.from('mahjong_state').select('data').eq('id',1).single();
+  if(error)throw error;
+  if(isAdmin()||!cloudReady)return;
+  const serialized=JSON.stringify(data.data);
+  if(serialized!==lastRemoteJson){
+   st=normalizeState(data.data);
+   lastRemoteJson=serialized;
+   lastSynced=clone(st);
+   render();
+  }
+  statusLabel('● 閲覧専用・共有中');
+ }catch(e){
+  if(!isAdmin())statusLabel('⚠ 更新失敗・再試行中');
+ }finally{spectatorPollBusy=false}
+}
+window.setInterval(refreshSpectator,5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshSpectator()});
 async function startCloud(){
  if(!configValid()){db=null;cloudReady=false;render();return}
  if(!window.supabase?.createClient){loadError='Supabase JSの読み込みに失敗しました。インターネット接続を確認してください。';render();return}
@@ -595,15 +629,15 @@ function sumStats(){
 }
 const tone=n=>n>0?'positive':n<0?'negative':'';
 const datelabel=d=>{try{return new Date(d+'T12:00:00').toLocaleDateString('ja-JP',{year:'numeric',month:'short',day:'numeric'})}catch(e){return d}};
-function nav(){let tabs=[['overview','◫','成績'],['stats','▥','スタッツ'],['entry','✎','対局入力'],['sticks','🀄','対局卓'],['members','♙','メンバー'],['rules','⚙','ルール設定']];if(!isAdmin())tabs=tabs.filter(x=>['overview','stats'].includes(x[0]));document.getElementById('nav').innerHTML=tabs.map(([v,i,t])=>`<button type="button" class="${view===v?'active':''}" data-action="goto" data-view="${v}" aria-current="${view===v?'page':'false'}">${i} ${t}</button>`).join('')}
+function nav(){let tabs=[['overview','◫','成績'],['stats','▥','スタッツ'],['entry','✎','対局入力'],['sticks','🀄',isAdmin()?'対局卓':'対局観戦'],['members','♙','メンバー'],['rules','⚙','ルール設定']];if(!isAdmin())tabs=tabs.filter(x=>['overview','stats','sticks'].includes(x[0]));document.getElementById('nav').innerHTML=tabs.map(([v,i,t])=>`<button type="button" class="${view===v?'active':''}" data-action="goto" data-view="${v}" aria-current="${view===v?'page':'false'}">${i} ${t}</button>`).join('')}
 function render(){
- if(!isAdmin()&&!['overview','stats','login'].includes(view))view='overview';
- document.body.classList.toggle('board-view',view==='sticks'&&!!st.pointTable&&isAdmin());document.body.classList.toggle('projection-mode',view==='sticks'&&!!st.pointTable&&projectionMode&&isAdmin());
+ if(!isAdmin()&&!['overview','stats','sticks','login'].includes(view))view='overview';
+ document.body.classList.toggle('board-view',view==='sticks'&&!!st.pointTable);document.body.classList.toggle('projection-mode',view==='sticks'&&!!st.pointTable&&projectionMode&&isAdmin());
  nav();updateHeader();let el=document.getElementById('app');
  if(!configValid()){el.innerHTML=configPage();return}
  if(loadError){el.innerHTML=page('接続エラー','データを取得できませんでした。保存済みの成績を代わりに表示することはありません。',`<section class="panel"><div class="notice error">${esc(loadError)}</div><div class="row" style="margin-top:15px"><button class="btn" data-action="refresh-cloud">再接続</button><button class="btn ghost" data-action="edit-config">接続情報を変更</button></div></section>`);return}
  if(!cloudReady){el.innerHTML=page('データを読み込み中','Supabaseから共有対局記録を取得しています。','<div class="panel">読み込み中…</div>');return}
- const body=view==='login'?loginPage():view==='overview'?overview():view==='stats'?roundStatsPage():view==='entry'?entry():view==='sticks'?sticks():view==='members'?members():rules();
+ const body=view==='login'?loginPage():view==='overview'?overview():view==='stats'?roundStatsPage():view==='entry'?entry():view==='sticks'?(isAdmin()?sticks():spectatorSticks()):view==='members'?members():rules();
  const legacy=isAdmin()&&localStorage.getItem(STORE)&&st.games.length===0?`<div class="notice shared-alert">この端末に以前の雀録の記録が残っているようです。<button class="btn sm" data-action="import-local">旧データをクラウドへ移行</button>（現在のクラウドの内容を置き換えるため、確認後に実行してください）</div>`:'';
  el.innerHTML=connectionNotice()+legacy+body;
 }
@@ -716,7 +750,7 @@ function exportRoundStats(){
 function overview(){
  let stats=sumStats().sort((a,b)=>b.score-a.score||a.id.localeCompare(b.id)),allGames=st.games.length,active=stats.filter(s=>s.count).length,top=stats.find(s=>s.count),filtered=st.games.filter(g=>activeFilter==='all'||g.seats.includes(activeFilter));let tophtml=top&&top.count?esc(pl(top.id).name):'—';
  return page('成績ダッシュボード','半荘ごとの結果と、みんなの累積ポイントをまとめて確認できます。',`
- <section class="hero"><div><h2>今日の一局も、記録を残そう。</h2><p>半荘中の点棒・リーチ・ロン・ツモも管理。終局後は成績に自動反映。</p></div><button class="btn gold no-print" data-action="goto" data-view="sticks">🀄 対局卓を開く →</button></section>
+ <section class="hero"><div><h2>今日の一局も、記録を残そう。</h2><p>半荘中の点棒・リーチ・ロン・ツモも管理。終局後は成績に自動反映。</p></div><button class="btn gold no-print" data-action="goto" data-view="sticks">🀄 ${isAdmin()?'対局卓を開く':'対局を観戦する'} →</button></section>
  <div class="grid cols3" style="margin-top:17px"><div class="panel kpi"><small>記録した半荘</small><strong>${allGames}<span style="font-size:16px"> 半荘</span></strong><div class="foot">3麻・4麻を合算</div></div><div class="panel kpi"><small>参加メンバー</small><strong>${active}<span style="font-size:16px"> 人</span></strong><div class="foot">1回以上の参加者</div></div><div class="panel kpi"><small>累計ポイント首位</small><strong style="font-size:20px;padding-top:6px">${tophtml}</strong><div class="foot">対局回数によらず累計ポイント順</div></div></div>
  <div class="grid cols2" style="margin-top:17px"><section class="panel"><div class="row between"><h2 style="margin:0">個人成績</h2><span class="badge">全期間</span></div>${stats.some(x=>x.count)?`<div class="rankings" style="margin-top:22px"><div class="rankrow head"><span>順位</span><span>メンバー</span><span class="right">半荘</span><span class="right">ポイント</span></div>${stats.filter(x=>x.count).map((x,i)=>`<div class="rankrow"><span class="rank-badge rank-${i+1}">${i+1}</span><div class="playerline">${av(x.id)}<span class="name">${esc(pl(x.id).name)}</span></div><span class="right numeric">${x.count}</span><strong class="right numeric ${tone(x.score)}">${signed(x.score)}</strong></div>`).join('')}</div>`:`<div class="empty"><div class="symbol">🀄</div>まだ記録がありません。<br>最初の半荘を入力しましょう。</div>`}</section>
  <section class="panel"><h2>データと成績の出力</h2><p class="muted" style="line-height:1.8">CSVでExcelに取り込んだり、JSONでバックアップできます。<br>対局データはSupabaseの共有データベースに保存されます。</p><div class="csv-tools" style="margin-top:22px"><button class="btn soft" data-action="export-csv">明細CSV</button><button class="btn soft" data-action="export-summary">集計CSV</button><button class="btn ghost" data-action="export-json">バックアップ保存</button><button class="btn ghost" data-action="import-json">バックアップ復元</button></div><div class="panel-divider"></div><h3>ポイント計算</h3><p class="hint">ポイント = (終局点 − 返し点) ÷ 1,000 + ウマ + オカ。オカは持ち点と返し点の差をトップに加算します。各半荘は登録時のルールで計算されます。</p></section></div>
@@ -930,7 +964,7 @@ function seatCard(t,id,place,ranking){
  return `<div class="live-player ${place} ${dealer?'active-wind':''} ${ri?'is-reach':''}">
  <div class="live-player-top"><div class="playerline">${av(id)}<span class="name">${esc(pl(id).name)}</span></div><div class="live-status">${dealer?'<span class="dealer-indicator">親</span>':''}</div></div>
  <div class="live-rank-line"><div class="live-points">${fmt(t.points[id])}</div><span class="live-rank rank-place-${rank}" aria-label="${rank}位">${rank}位</span></div>
- <div class="live-buttons"><button class="btn ${ri?'danger':'soft'} sm" data-action="board-reach" data-id="${esc(id)}" ${t.ended?'disabled':''} aria-pressed="${ri}">${ri?'リーチ取消':'リーチ'}</button></div>
+ ${isAdmin()?`<div class="live-buttons"><button class="btn ${ri?'danger':'soft'} sm" data-action="board-reach" data-id="${esc(id)}" ${t.ended?'disabled':''} aria-pressed="${ri}">${ri?'リーチ取消':'リーチ'}</button></div>`:''}
  ${ri?'<span class="riichi-stick" role="img" aria-label="リーチ棒（1,000点）" title="リーチ棒（1,000点）"><span class="riichi-stick-mark"></span></span>':''}</div>`;
 }
 
@@ -1072,6 +1106,32 @@ return page('対局卓','',`
   <div class="board-finish-row"><button class="btn soft" data-action="board-open" data-panel="finish">${t.ended?'終局結果を保存 →':'半荘終了・成績記録 →'}</button><details class="board-more"><summary>その他</summary><div class="board-more-content"><div class="small ${valid?'muted':'negative'}">卓全体：${fmt(total)} / ${fmt(t.start*t.seats.length)}点 ${valid?'✓':'⚠'}</div><button class="btn ghost sm" data-action="point-to-entry">終局点を手入力へ</button><button class="btn danger sm" data-action="reset-point">対局を破棄</button></div></details></div>
  </aside>
 </div>`)}
+
+// 管理者と同じ対局卓の点数を読むだけの独立画面。編集操作用DOMは生成しない。
+function spectatorSticks(){
+ const t=st.pointTable;
+ if(!t)return page('対局観戦','管理者が開始した半荘の点数状況を、ログイン不要で確認できます。',
+  `<section class="panel" style="max-width:780px"><h2>現在、対局中の半荘はありません</h2><p class="muted">管理者が新しい半荘を開始すると、この画面に点数状況が表示されます。ページを開いたままでも約5秒ごとに自動確認します。</p><button class="btn ghost sm" data-action="refresh-cloud">今すぐ更新</button></section>`);
+ upgradeBoard(t);
+ const ranking=liveStandings(t);
+ const slots={'lp-north':t.seats[2],'lp-west':t.seats.length===4?t.seats[3]:null,'lp-east':t.seats[1],'lp-south':t.seats[0]};
+ const roundLabel=t.ended&&t.endRoundLabel?t.endRoundLabel:`${boardRound(t)}${t.honba}本場`;
+ const history=Array.isArray(t.events)?t.events:[];
+ return page('対局観戦','管理者が入力した持ち点・順位・リーチ状況を閲覧できます。観戦画面からの変更はできません。',`
+ <div class="spectator-status" role="status"><div><strong>${t.ended?'● この半荘は終局しました':'● 対局の点数状況を共有中'}</strong><span style="display:block;margin-top:4px">約5秒ごとに自動更新・閲覧専用</span></div><button class="btn ghost sm" data-action="refresh-cloud">↻ 今すぐ更新</button></div>
+ <div class="board-workspace ${t.ended?'has-ended':''}" aria-label="閲覧専用の対局卓と操作履歴">
+  <div class="board-stage">
+   <div class="live-board"><div class="table-layout">${Object.entries(slots).map(([place,id])=>id?seatCard(t,id,place,ranking):'<div class="live-empty-seat lp-west">空席</div>').join('')}
+    <div class="live-center"><div class="round-heading">${esc(roundLabel)}</div><div class="live-pot">供託 <strong>${fmt(t.pot)}点</strong></div></div>
+   </div></div>
+   <section class="panel" style="margin-top:13px"><h2>現在の順位</h2><div class="spectator-rankings">${ranking.map(p=>`<div class="spectator-rank-row"><div class="playerline"><span class="rank-badge rank-${p.rank}">${p.rank}</span>${av(p.id)}<span class="name">${esc(pl(p.id).name)}</span></div><strong>${fmt(p.points)}点</strong></div>`).join('')}</div></section>
+  </div>
+  <aside class="board-sidebar">
+   ${t.ended?`<div class="board-end-notice" role="status"><strong>終局：${esc(t.endRoundLabel||roundLabel)}</strong><span>管理者の成績保存をお待ちください。</span></div>`:''}
+   <section class="panel board-history"><div class="row between"><h2>対局の操作履歴</h2><span class="badge">${history.length}件</span></div><div class="live-logs" aria-label="新しい順の操作履歴">${history.length?[...history].reverse().map((e,i)=>`<div class="event"><div class="event-text"><strong>${esc(e.desc)}</strong><span>${esc(e.at||'')}</span></div><span class="event-index">${history.length-i}</span></div>`).join(''):'<div class="empty">まだ操作履歴はありません</div>'}</div></section>
+  </aside>
+ </div>`);
+}
  function memberTileList(variant,selectedCode){
   return TILE_GROUPS.map(group=>`<section><h3 class="tile-section-title">${group.label}</h3><div class="tile-options">${group.tiles.map(tile=>`<button type="button" class="tile-option ${selectedCode===tile.code?'selected':''}" data-action="pick-tile" data-tile="${tile.code}" aria-label="${tile.label}" aria-pressed="${selectedCode===tile.code}" title="${tile.label}">${tileSvg(tile.code,variant)}<span>${tile.label}</span></button>`).join('')}</div></section>`).join('');
  }
@@ -1112,7 +1172,7 @@ return page('対局卓','',`
 function rules(){let r=st.settings,arr=umaOf(r);return page('ルール設定','持ち点・返し点・ウマを設定します。設定は新しく登録する対局から適用されます。',`<div class="panel"><div class="row between"><h2 style="margin:0">ルールプリセット</h2><span class="badge">自動保存</span></div><div class="toolbar" style="margin-top:17px"><button class="btn soft" data-action="preset" data-preset="yonma">4麻 25,000 / 30,000</button><button class="btn soft" data-action="preset" data-preset="yonma30">4麻 30,000 / 30,000</button><button class="btn soft" data-action="preset" data-preset="sanma">3麻 35,000 / 40,000</button></div><div class="panel-divider"></div><div class="rulegrid"><div class="field"><label for="r-mode">対局形式</label><select id="r-mode" data-rule="mode"><option value="4" ${Number(r.mode)===4?'selected':''}>4人麻雀</option><option value="3" ${Number(r.mode)===3?'selected':''}>3人麻雀</option></select></div>${[['start','持ち点','点'],['return','返し点','点']].map(([k,label,unit])=>`<div class="field"><label for="r-${k}">${label}</label><div class="suffix-wrap"><input type="number" data-rule="${k}" id="r-${k}" value="${Number(r[k]||0)}" step="100" min="0"><span class="suffix">${unit}</span></div></div>`).join('')}<div class="field"><label for="r-uma-preset">ウマ</label>${umaSelector(r)}</div></div><div class="notice" style="margin-top:22px"><strong>現在のウマ：</strong>${arr.map((x,i)=>`${i+1}位 ${signed(x)}pt`).join(' ／ ')}<br>ウマとオカは半荘終了時にポイントへ自動加算します。</div><div class="row" style="margin-top:20px"><button class="btn" data-action="goto" data-view="entry">この設定で対局を入力 →</button><span class="hint">変更時にブラウザへ保存されます</span></div></div>
  <section class="panel" style="margin-top:18px"><h2>保存・復元</h2><div class="toolbar"><button class="btn soft" data-action="export-json">全データをバックアップ</button><button class="btn ghost" data-action="import-json">JSONバックアップを復元</button><button class="btn danger" data-action="clear-all">全データを初期化</button></div><p class="hint">このWebアプリはサーバーを使わず、ブラウザのlocalStorageに記録を保存します。別の端末への引き継ぎにはJSONバックアップが必要です。</p></section>`)
 }
-function goto(v){if(!isAdmin()&&!['overview','stats','login'].includes(v)){notify('この機能は管理者ログイン後に利用できます。',true);return}view=v;render();window.scrollTo({top:0,behavior:'instant'})}
+function goto(v){if(!isAdmin()&&!['overview','stats','sticks','login'].includes(v)){notify('この機能は管理者ログイン後に利用できます。',true);return}view=v;render();window.scrollTo({top:0,behavior:'instant'})}
 function rotate(ids){let all=st.players.map(p=>p.id),i=all.indexOf(ids[0]);if(all.length<=ids.length)return ids;return Array.from({length:ids.length},(_,k)=>all[(i+k+1)%all.length])}
 function validScore(){let r=rulesOf(),n=nPlayers(r);if(!Number.isSafeInteger(Number(r.return))||Number(r.return)<0||Number(r.return)>1000000||Number(r.return)%100!==0)return '返し点は0〜1,000,000点の100点単位で入力してください。';if(draft.seats.length!==n||new Set(draft.seats).size!==n)return '参加者が重複しているか人数が足りません。';if(!draft.date)return '日付を入力してください。';for(let id of draft.seats){let x=Number(draft.scores[id]);if(!Number.isFinite(x)||x%100!==0)return '終局点は100点単位の数値で入力してください。'}if(draft.seats.reduce((s,id)=>s+Number(draft.scores[id]),0)!==n*r.start)return `持ち点の合計は${fmt(n*r.start)}点にしてください。`;let u=umaOf(r);if(u.some(x=>!Number.isFinite(Number(x)))||Math.abs(u.reduce((s,x)=>s+Number(x),0))>1e-8)return 'ウマの合計が0ptになっていません。ルールを確認してください。';return ''}
 function record(){let err=validScore();if(err){notify(err,true);return}let rules=clone(rulesOf()),obj={id:draft.editing||getId(),date:draft.date,note:draft.note,seats:draft.seats.slice(),scores:{...draft.scores},rules,createdAt:new Date().toISOString()};if(draft.editing){let idx=st.games.findIndex(x=>x.id===draft.editing);if(idx>=0){let old=st.games[idx];st.games[idx]={...old,...obj,createdAt:old.createdAt||obj.createdAt}}else{notify('元の対局履歴が見つかりません。',true);return}}else st.games.unshift(obj);st.games.sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));save();initialDraft();notify('対局結果を送信しました（保存状況を確認してください）');goto('overview')}
@@ -1217,7 +1277,7 @@ function resizePhoto(file){return new Promise((resolve,reject)=>{let img=new Ima
  case 'member-edit':memberEdit=id;render();document.getElementById('member-name')?.focus();break;case 'member-cancel':memberEdit=null;render();break;case 'member-delete':{if(st.players.length<=nPlayers(st.settings)){notify('最低人数を下回るため削除できません',true);return}let p=pl(id);if(st.games.some(g=>g.seats.includes(id))){notify('過去の対局に参加したメンバーは削除できません。名前の編集をご利用ください。',true);return}if(st.pointTable?.seats.includes(id)){notify('点棒管理中のメンバーは削除できません',true);return}if(confirm(`${p.name}を削除しますか？`)){st.players=st.players.filter(p=>p.id!==id);initialDraft();save();render()}break}
  case 'clear-all':{if(confirm('全ての記録・メンバー・設定を初期化します。この操作は元に戻せません。バックアップは保存しましたか？')&&confirm('最終確認：全データを削除しますか？')){st=defaults();initialDraft();save();goto('overview');notify('初期化しました')}break}
  }});
- document.addEventListener('change',e=>{let x=e.target;if(!isAdmin())return;if(['member-icon-type','member-photo'].includes(x.id)){syncMemberIconMode();return}if(x.id==='board-winner'){syncBoardScoringChoice('winner');return}if(x.id==='board-han'){syncBoardScoringChoice('han');return}if(x.dataset.boardTenpai!==undefined||x.id==='board-noten'){syncBoardNotenPreview();return}if(x.dataset.historicRule!==undefined){changeHistoricRule(x.dataset.historicRule,x.value);return}if(x.dataset.historicUma!==undefined){changeHistoricRule('uma',x.value);return}if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(x.dataset.entry){let k=x.dataset.entry,id=x.dataset.id;if(k==='seat'){let i=Number(x.dataset.seat),old=draft.seats[i],selected=x.value,j=draft.seats.indexOf(selected);draft.seats[i]=selected;if(j>=0&&j!==i)draft.seats[j]=old;for(let p of draft.seats){draft.scores[p]??=Number(rulesOf().start);}render()}else {draft.scores[id]=Number(x.value);syncEntry()}return}if(x.id==='entry-date'){draft.date=x.value;return}if(x.id==='entry-note'){draft.note=x.value;return}if(x.dataset.rule){updateRule(x.dataset.rule,x.value);return}if(x.dataset.umaPreset!==undefined){setUmaPreset(x.value);return}});
+ document.addEventListener('change',e=>{let x=e.target;if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(!isAdmin())return;if(['member-icon-type','member-photo'].includes(x.id)){syncMemberIconMode();return}if(x.id==='board-winner'){syncBoardScoringChoice('winner');return}if(x.id==='board-han'){syncBoardScoringChoice('han');return}if(x.dataset.boardTenpai!==undefined||x.id==='board-noten'){syncBoardNotenPreview();return}if(x.dataset.historicRule!==undefined){changeHistoricRule(x.dataset.historicRule,x.value);return}if(x.dataset.historicUma!==undefined){changeHistoricRule('uma',x.value);return}if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(x.dataset.entry){let k=x.dataset.entry,id=x.dataset.id;if(k==='seat'){let i=Number(x.dataset.seat),old=draft.seats[i],selected=x.value,j=draft.seats.indexOf(selected);draft.seats[i]=selected;if(j>=0&&j!==i)draft.seats[j]=old;for(let p of draft.seats){draft.scores[p]??=Number(rulesOf().start);}render()}else {draft.scores[id]=Number(x.value);syncEntry()}return}if(x.id==='entry-date'){draft.date=x.value;return}if(x.id==='entry-note'){draft.note=x.value;return}if(x.dataset.rule){updateRule(x.dataset.rule,x.value);return}if(x.dataset.umaPreset!==undefined){setUmaPreset(x.value);return}});
  document.addEventListener('input',e=>{let x=e.target;if(!isAdmin())return;if(x.id==='board-noten')syncBoardNotenPreview();if(x.dataset.entry==='score'){draft.scores[x.dataset.id]=Number(x.value);syncEntry()}if(x.id==='entry-note')draft.note=x.value;if(x.id==='entry-date')draft.date=x.value});
  document.getElementById('app').addEventListener('submit',async e=>{
  if(e.target.id==='config-form'){
