@@ -1075,14 +1075,53 @@ function syncBoardNotenPreview(){
  const summary=!nT||!nN?'全員テンパイ、または全員ノーテンの場合は点棒移動なし':total===0?'罰符の点棒移動なし':`ノーテン${nN}人は各${fmt(total/nN)}点支払い ／ テンパイ${nT}人は各${fmt(total/nT)}点受け取り`;
  el.innerHTML=`<div class="notice ok"><strong>精算プレビュー</strong><div>${summary}</div></div><div class="score-preview" style="margin-top:12px">${t.seats.map(id=>`<div class="item"><span>${esc(pl(id).name)}</span><strong class="${deltas[id]>0?'positive':deltas[id]<0?'negative':''}" style="font-size:19px">${signed(deltas[id])}</strong><span>点</span></div>`).join('')}</div>`;
 }
-function boardForm(t){let n=t.seats.length,ids=t.seats;const fld=(lab,body,cls="")=>`<div class="field ${cls}"><label>${lab}</label>${body}</div>`;const num=(id,v)=>`<input type="number" id="${id}" min="0" step="100" value="${v}" inputmode="numeric">`;
-if(boardPanel==='ron')return `<h3 class="live-subtitle">ロン和了を記録</h3><div class="formgrid">${fld('和了者',boardSelect('board-winner'))}${fld('放銃者',boardSelect('board-loser',ids.slice().reverse()))}${fld('<span id="board-score-type">'+(ids[0]===boardDealer(t)?'親':'子')+'のロン点数</span>（本場を除く）',scoreChoiceMarkup(t,'ron',ids[0]),'score-picker-field')}</div><p class="hint">まず翻数を選び、対応する符・ロン点数を選択してください。同じ点数でも符が異なる場合は別々に選べます。${fmt(t.honba*300)}点の本場加算と供託${fmt(t.pot)}点の回収を自動反映します。特殊なハウスルールは「点棒移動」をご利用ください。</p><div class="live-actions-footer"><button class="btn" data-action="board-ron-save">ロンを確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
-if(boardPanel==='tsumo')return `<h3 class="live-subtitle">ツモ和了を記録</h3><div class="formgrid">${fld('和了者',boardSelect('board-winner'))}${fld('<span id="board-score-type">'+(ids[0]===boardDealer(t)?'親':'子')+'のツモ支払額</span>（本場を除く）',scoreChoiceMarkup(t,'tsumo',ids[0]),'score-picker-field')}</div><p class="hint">まず翻数を選び、続いて符と支払額を選択します。子の2,000 / 3,900点は2,000 / 4,000点として扱います。親は「○点オール」、子は「子 / 親」の支払額です。各自に本場×100点を加算し、供託は和了者が回収。3麻は従来どおりツモ損（2人支払い）です。</p><div class="live-actions-footer"><button class="btn" data-action="board-tsumo-save">ツモを確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
-if(boardPanel==='draw')return `<h3 class="live-subtitle">流局・聴牌状況</h3><div class="grid cols2" style="margin:0 0 16px">${ids.map(id=>`<label class="inline-check"><input type="checkbox" data-board-tenpai="${esc(id)}">${esc(pl(id).name)} は聴牌</label>`).join('')}</div>${n===4?'<div class="chip" style="margin-bottom:15px">四麻：ノーテン罰符総額 3,000点（固定）</div>':`<div class="formgrid">${fld('三麻のノーテン罰符（全体・任意）',num('board-noten',0))}</div><p class="hint">三麻はルール差があるため罰符総額を指定してください（初期値0点）。</p>`}<div id="board-noten-preview" aria-live="polite" style="margin-top:8px"></div><p class="hint" style="margin-top:12px">聴牌者とノーテン者が両方いる場合のみ罰符を配分します。親が聴牌なら連荘、親がノーテンなら親流れ。本場は1増加し、供託は次局へ持ち越します。</p><div class="live-actions-footer"><button class="btn" data-action="board-draw-save">流局を確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
-if(boardPanel==='manual')return `<h3 class="live-subtitle">手動で点棒を移動</h3><div class="formgrid">${fld('支払う人',boardSelect('board-from'))}${fld('受け取る人',boardSelect('board-to',ids.slice().reverse()))}${fld('移動する点数',num('board-amount',1000))}</div><p class="hint">通常の点数移動はロン・ツモから入力してください。例外的な点数調整に使用します。</p><div class="live-actions-footer"><button class="btn" data-action="board-manual-save">点棒を移動</button><button class="btn soft" data-action="board-all-save">受け取る人以外全員から回収</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
-if(boardPanel==='pot')return `<h3 class="live-subtitle">リーチ供託を回収</h3><p class="muted">現在の供託：<strong>${fmt(t.pot)}点</strong></p><div class="formgrid">${fld('回収する人',boardSelect('board-recipient'))}</div><div class="live-actions-footer"><button class="btn" data-action="board-pot-save" ${t.pot===0?'disabled':''}>供託を回収する</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
-if(boardPanel==='finish'){let tot=t.seats.reduce((x,id)=>x+Number(t.points[id]),0)+t.pot,ok=tot===n*t.start&&t.pot===0,projected=scoreGame({seats:t.seats,scores:t.points,rules:t.rules||st.settings});return `<h3 class="live-subtitle">半荘終了・ポイントを登録</h3><p class="muted">現在の持ち点を確定し、成績ダッシュボードに直接記録します。</p>${entryPreview(projected,t.rules||st.settings)}<div class="field" style="margin-top:14px"><label>メモ（任意）</label><input id="board-finish-note" maxlength="80" placeholder="例：卓から記録した半荘"></div><div class="notice ${ok?'ok':'error'}" style="margin-top:13px">${t.pot?'供託が残っています。先に「供託回収」を行ってください。':tot!==n*t.start?'卓全体の点数が開始時と一致しません。操作履歴を確認してください。':'点数の整合性OK。終了できます。'}</div><div class="live-actions-footer"><button class="btn" data-action="board-finish-save" ${!ok?'disabled':''}>この半荘を成績に記録</button>${t.pot?'<button class="btn soft" data-action="board-open" data-panel="pot">供託回収へ</button>':''}<button class="btn ghost" data-action="board-close">戻る</button></div>`}
-return ''}
+function boardForm(t) {
+  let n = t.seats.length, ids = t.seats;
+  const fld = (lab, body, cls = "") => `<div class="field ${cls}"><label>${lab}</label>${body}</div>`;
+  const num = (id, v) => `<input type="number" id="${id}" min="0" step="100" value="${v}" inputmode="numeric">`;
+
+  if(boardPanel === 'ron') {
+    return `<h3 class="live-subtitle">ロン和了を記録</h3><div class="formgrid">
+      ${fld('和了者', boardSelect('board-winner'))}
+      ${fld('放銃者', boardSelect('board-loser', ids.slice().reverse()))}
+      ${fld('ロン点数（本場を含まない）', num('board-ron-score', 1000), 'score-picker-field')}
+    </div><p class="hint">打点を直接入力してください。${fmt(t.honba*300)}点の本場加算と供託${fmt(t.pot)}点の回収は自動で行われます。</p>
+    <div class="live-actions-footer"><button class="btn" data-action="board-ron-save">ロンを確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
+  }
+
+  if(boardPanel === 'tsumo') {
+    const isDealer = ids[0] === boardDealer(t);
+    const tsumoInputs = isDealer 
+      ? fld('オール（1人あたりの支払額）', num('board-tsumo-all', 1000))
+      : `${fld('子の支払い', num('board-tsumo-ko', 1000))}${fld('親の支払い', num('board-tsumo-oya', 2000))}`;
+    return `<h3 class="live-subtitle">ツモ和了を記録</h3><div class="formgrid">
+      ${fld('和了者', boardSelect('board-winner'))}
+      ${tsumoInputs}
+    </div><p class="hint">ツモの支払額を直接入力してください。各自に本場×100点を加算し、供託は自動回収します。3麻はツモ損（2人支払い）になります。</p>
+    <div class="live-actions-footer"><button class="btn" data-action="board-tsumo-save">ツモを確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
+  }
+
+  if(boardPanel === 'edit') {
+    return `<h3 class="live-subtitle">局・点棒の強制上書き</h3><div class="formgrid">
+      ${fld('局数 (1=東1局, 5=南1局)', num('edit-kyoku', (t.roundIndex || 0) + 1))}
+      ${fld('本場', num('edit-honba', t.honba || 0))}
+      ${fld('供託', num('edit-pot', t.pot || 0))}
+    </div><h4 style="margin-top:16px;">各プレイヤーの持ち点</h4><div class="formgrid">
+      ${ids.map(id => fld(esc(pl(id).name), num(`edit-point-${id}`, t.points[id]))).join('')}
+    </div><p class="hint">途中から記録を開始する場合や、入力ミスを強制的に修正する場合に使用します。</p>
+    <div class="live-actions-footer"><button class="btn" data-action="board-edit-save">この状態で上書き保存</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
+  }
+
+  // 以降の draw, manual, pot, finish パネルは既存のコードそのままです
+  if(boardPanel === 'draw') return `<h3 class="live-subtitle">流局・聴牌状況</h3><div class="grid cols2" style="margin:0 0 16px">${ids.map(id=>`<label class="inline-check"><input type="checkbox" data-board-tenpai="${esc(id)}">${esc(pl(id).name)} は聴牌</label>`).join('')}</div>${n===4?'<div class="chip" style="margin-bottom:15px">四麻：ノーテン罰符総額 3,000点（固定）</div>':`<div class="formgrid">${fld('三麻のノーテン罰符（全体・任意）',num('board-noten',0))}</div><p class="hint">三麻はルール差があるため罰符総額を指定してください（初期値0点）。</p>`}<div id="board-noten-preview" aria-live="polite" style="margin-top:8px"></div><p class="hint" style="margin-top:12px">聴牌者とノーテン者が両方いる場合のみ罰符を配分します。親が聴牌なら連荘、親がノーテンなら親流れ。本場は1増加し、供託は次局へ持ち越します。</p><div class="live-actions-footer"><button class="btn" data-action="board-draw-save">流局を確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
+  if(boardPanel === 'manual') return `<h3 class="live-subtitle">手動で点棒を移動</h3><div class="formgrid">${fld('支払う人',boardSelect('board-from'))}${fld('受け取る人',boardSelect('board-to',ids.slice().reverse()))}${fld('移動する点数',num('board-amount',1000))}</div><p class="hint">通常の点数移動はロン・ツモから入力してください。例外的な点数調整に使用します。</p><div class="live-actions-footer"><button class="btn" data-action="board-manual-save">点棒を移動</button><button class="btn soft" data-action="board-all-save">受け取る人以外全員から回収</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
+  if(boardPanel === 'pot') return `<h3 class="live-subtitle">リーチ供託を回収</h3><p class="muted">現在の供託：<strong>${fmt(t.pot)}点</strong></p><div class="formgrid">${fld('回収する人',boardSelect('board-recipient'))}</div><div class="live-actions-footer"><button class="btn" data-action="board-pot-save" ${t.pot===0?'disabled':''}>供託を回収する</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
+  if(boardPanel === 'finish') {
+    let tot=t.seats.reduce((x,id)=>x+Number(t.points[id]),0)+t.pot,ok=tot===n*t.start&&t.pot===0,projected=scoreGame({seats:t.seats,scores:t.points,rules:t.rules||st.settings});
+    return `<h3 class="live-subtitle">半荘終了・ポイントを登録</h3><p class="muted">現在の持ち点を確定し、成績ダッシュボードに直接記録します。</p>${entryPreview(projected,t.rules||st.settings)}<div class="field" style="margin-top:14px"><label>メモ（任意）</label><input id="board-finish-note" maxlength="80" placeholder="例：卓から記録した半荘"></div><div class="notice ${ok?'ok':'error'}" style="margin-top:13px">${t.pot?'供託が残っています。先に「供託回収」を行ってください。':tot!==n*t.start?'卓全体の点数が開始時と一致しません。操作履歴を確認してください。':'点数の整合性OK。終了できます。'}</div><div class="live-actions-footer"><button class="btn" data-action="board-finish-save" ${!ok?'disabled':''}>この半荘を成績に記録</button>${t.pot?'<button class="btn soft" data-action="board-open" data-panel="pot">供託回収へ</button>':''}<button class="btn ghost" data-action="board-close">戻る</button></div>`;
+  }
+  return '';
+}
 function sticks(){let t=st.pointTable,n=nPlayers(st.settings),canInit=st.players.length>=n;
 if(!t){return page('対局卓','リーチ・ロン・ツモ・流局を記録し、半荘終了後のポイント集計まで一括管理します。',`<section class="panel" style="max-width:750px"><h2>新しい半荘を開始</h2><p class="muted">${n}人麻雀・各${fmt(st.settings.start)}点から開始します。設定や名前は開始前に変更できます。</p><div class="formgrid" style="margin:20px 0">${Array.from({length:n},(_,i)=>`<div class="field"><label>${WIND[i]}家</label><select data-stick-seat="${i}">${st.players.map((p,j)=>`<option value="${esc(p.id)}" ${j===i?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>`).join('')}</div><button class="btn" data-action="new-point" ${!canInit?'disabled':''}>対局を開始する →</button><p class="hint" style="margin-top:12px">開始後は操作ごとに自動保存されます。途中でタブを閉じても続きから再開できます。</p></section>`)}
 upgradeBoard(t);let total=t.seats.reduce((sum,id)=>sum+Number(t.points[id]||0),0)+Number(t.pot||0);let valid=total===t.seats.length*t.start;
@@ -1214,14 +1253,152 @@ function boardAdvance(t,winner){
  }
  for(const id of t.seats){t.riichi[id]=false;t.furo[id]=false}
 }
-function boardAction(action,id){let t=st.pointTable;if(!t)return;upgradeBoard(t);let n=t.seats.length;if(t.ended&&['board-reach','board-ron-save','board-tsumo-save','board-draw-save'].includes(action))return boardAlert('この半荘は終局しています。成績を保存するか、操作を取り消してください。');
-if(action==='board-reach'){if(t.riichi[id]){if(t.pot<1000)return boardAlert('供託が回収済みのためリーチを取り消せません。直前の操作を取り消してからお試しください。');boardUpdate(`${pl(id).name}のリーチを取消（1,000点返却）`,tt=>{tt.points[id]+=1000;tt.pot-=1000;tt.riichi[id]=false},{type:'reach-cancel',player:id});return}if(t.points[id]<1000)return boardAlert('リーチするには持ち点が1,000点以上必要です。');boardUpdate(`${pl(id).name}がリーチ（供託1,000点）`,tt=>{tt.points[id]-=1000;tt.pot+=1000;tt.riichi[id]=true},{type:'reach',player:id});return}
-if(action==='board-ron-save'){let w=boardRead('board-winner'),l=boardRead('board-loser'),choice=selectedScore('ron',w);if(w===l)return boardAlert('和了者と放銃者は別の人にしてください。');if(!choice)return boardAlert('候補リストからロン点数を選択してください。');let base=choice.basePoints,pay=base+t.honba*300;boardUpdate(`${boardRound(t)}：${pl(w).name} ロン、${pl(l).name}が${fmt(pay)}点支払い（${choice.label.split('｜').pop().trim()}）`,tt=>{tt.points[l]-=pay;tt.points[w]+=pay+tt.pot;tt.pot=0;tt.yakitori[w]=false;boardAdvance(tt,w)},{type:'ron',winner:w,loser:l,basePoints:base,han:choice.han,fu:choice.fu,honba:t.honba,roundIndex:t.roundIndex,riichiPlayers:t.seats.filter(pid=>t.riichi[pid])});boardPanel='';render();if(t.ended)window.scrollTo({top:0,behavior:'instant'});return}
-if(action==='board-tsumo-save'){let w=boardRead('board-winner'),choice=selectedScore('tsumo',w);let dealer=boardDealer(t),isDealer=w===dealer;if(!choice)return boardAlert('候補リストからツモ点数を選択してください。');let child=choice.child,parent=choice.parent;let sum=0,pays=[];for(let id of t.seats)if(id!==w){let x=Number(id===dealer?parent:child)+t.honba*100;pays.push([id,x]);sum+=x}boardUpdate(`${boardRound(t)}：${pl(w).name} ツモ（${pays.map(([id,x])=>pl(id).name+' '+fmt(x)).join('、')}点／${choice.label.split('｜').pop().trim()}）`,tt=>{for(let [id,x] of pays)tt.points[id]-=x;tt.points[w]+=sum+tt.pot;tt.pot=0;tt.yakitori[w]=false;boardAdvance(tt,w)},{type:'tsumo',winner:w,basePoints:pays.reduce((s,[,x])=>s+x-t.honba*100,0),han:choice.han,fu:choice.fu,honba:t.honba,roundIndex:t.roundIndex,riichiPlayers:t.seats.filter(pid=>t.riichi[pid])});boardPanel='';render();if(t.ended)window.scrollTo({top:0,behavior:'instant'});return}
-if(action==='board-draw-save'){let tenpai=[...document.querySelectorAll('[data-board-tenpai]:checked')].map(x=>x.dataset.boardTenpai);let pt=boardNotenPool(t);if(!validAmount(pt,true))return boardAlert('流局罰符は0以上の100点単位で入力してください。');let deltas=boardNotenDeltas(t,tenpai,pt);if(!deltas)return boardAlert('聴牌者・ノーテン者間で100点単位に均等配分できる罰符を指定してください。');let again=tenpai.includes(boardDealer(t));boardUpdate(`${boardRound(t)}：流局（聴牌 ${tenpai.length}人、${again?'親の聴牌・連荘':'親流れ'}、罰符${fmt(tenpai.length===0||tenpai.length===n?0:pt)}点）`,tt=>{for(let id of tt.seats)tt.points[id]+=deltas[id];if(!boardMaybeEnd(tt,again)){tt.honba+=1;if(!again)tt.roundIndex+=1}for(let id of tt.seats){tt.riichi[id]=false;tt.furo[id]=false}},{type:'draw',tenpai,roundIndex:t.roundIndex,honba:t.honba,riichiPlayers:t.seats.filter(pid=>t.riichi[pid])});boardPanel='';render();if(t.ended)window.scrollTo({top:0,behavior:'instant'});return}
-if(action==='board-manual-save'||action==='board-all-save'){let from=boardRead('board-from'),to=boardRead('board-to'),amt=boardRead('board-amount');if(!validAmount(amt))return boardAlert('移動する点数は100点単位の正の整数で入力してください。');let amount=Number(amt);if(action==='board-manual-save'){if(from===to)return boardAlert('支払う人と受け取る人が同じです。');boardUpdate(`${pl(from).name} → ${pl(to).name}：${fmt(amount)}点`,tt=>{tt.points[from]-=amount;tt.points[to]+=amount})}else{boardUpdate(`${pl(to).name}が全員から${fmt(amount)}点受け取り`,tt=>{for(let id of tt.seats)if(id!==to){tt.points[id]-=amount;tt.points[to]+=amount}})}return}
-if(action==='board-pot-save'){let to=boardRead('board-recipient');if(t.pot<=0)return boardAlert('供託はありません。');boardUpdate(`${pl(to).name}が供託${fmt(t.pot)}点を回収`,tt=>{tt.points[to]+=tt.pot;tt.pot=0});boardPanel='';render();return}
-if(action==='board-finish-save'){if(t.pot!==0)return boardAlert('供託が残っています。先に回収してください。');if(t.seats.reduce((a,id)=>a+Number(t.points[id]),0)!==t.seats.length*t.start)return boardAlert('持ち点の合計が一致しません。');let u=umaOf(t.rules);if(u.reduce((a,b)=>a+Number(b),0)!==0)return boardAlert('ウマ合計が0ではありません。ルールを確認してください。');if(!confirm('この半荘を成績に記録して、対局卓を終了します。よろしいですか？'))return;let note=boardRead('board-finish-note')?.trim()||'対局卓から記録';let obj={id:getId(),date:localDate(),note,seats:t.seats.slice(),scores:{...t.points},rules:clone(t.rules),createdAt:new Date().toISOString(),handHistory:t.events.map(({before,...e})=>e),boardRecorded:true,handSeats:t.seats.slice(),seatNames:Object.fromEntries(t.seats.map(pid=>[pid,pl(pid).name]))};st.games.unshift(obj);st.games.sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));st.pointTable=null;boardPanel='';save();initialDraft();goto('overview');notify('半荘のポイントと成績を保存しました！');return}}
+function boardAction(action, id) {
+  let t = st.pointTable;
+  if (!t) return;
+  upgradeBoard(t);
+  let n = t.seats.length;
+  if (t.ended && ['board-reach', 'board-ron-save', 'board-tsumo-save', 'board-draw-save'].includes(action))
+    return boardAlert('この半荘は終局しています。成績を保存するか、操作を取り消してください。');
+
+  if (action === 'board-reach') {
+    if (t.riichi[id]) {
+      if (t.pot < 1000) return boardAlert('供託が回収済みのためリーチを取り消せません。直前の操作を取り消してからお試しください。');
+      boardUpdate(`${pl(id).name}のリーチを取消（1,000点返却）`, tt => { tt.points[id] += 1000; tt.pot -= 1000; tt.riichi[id] = false; }, { type: 'reach-cancel', player: id });
+      return;
+    }
+    if (t.points[id] < 1000) return boardAlert('リーチするには持ち点が1,000点以上必要です。');
+    boardUpdate(`${pl(id).name}がリーチ（供託1,000点）`, tt => { tt.points[id] -= 1000; tt.pot += 1000; tt.riichi[id] = true; }, { type: 'reach', player: id });
+    return;
+  }
+
+  if (action === 'board-ron-save') {
+    let w = boardRead('board-winner'), l = boardRead('board-loser');
+    let base = Number(document.getElementById('board-ron-score').value);
+    if (w === l) return boardAlert('和了者と放銃者は別の人にしてください。');
+    if (!base || base <= 0) return boardAlert('ロン点数を正しく入力してください。');
+
+    let pay = base + t.honba * 300;
+    boardUpdate(`${boardRound(t)}：${pl(w).name} ロン、${pl(l).name}が${fmt(pay)}点支払い（直接入力）`, tt => {
+      tt.points[l] -= pay; tt.points[w] += pay + tt.pot; tt.pot = 0; tt.yakitori[w] = false; boardAdvance(tt, w);
+    }, { type: 'ron', winner: w, loser: l, basePoints: base, han: '手動', fu: '-', honba: t.honba, roundIndex: t.roundIndex, riichiPlayers: t.seats.filter(pid => t.riichi[pid]) });
+    
+    boardPanel = ''; render();
+    if (t.ended) window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
+  }
+
+  if (action === 'board-tsumo-save') {
+    let w = boardRead('board-winner');
+    let dealer = boardDealer(t), isDealer = w === dealer;
+    let sum = 0, pays = [], baseTotal = 0, basePayLabel = '';
+
+    if (isDealer) {
+      let all = Number(document.getElementById('board-tsumo-all').value);
+      if (!all || all <= 0) return boardAlert('ツモ点数を正しく入力してください。');
+      basePayLabel = `${fmt(all)}オール`;
+      for (let pid of t.seats) {
+        if (pid !== w) { let x = all + t.honba * 100; pays.push([pid, x]); sum += x; baseTotal += all; }
+      }
+    } else {
+      let ko = Number(document.getElementById('board-tsumo-ko').value);
+      let oya = Number(document.getElementById('board-tsumo-oya').value);
+      if (!ko || ko <= 0 || !oya || oya <= 0) return boardAlert('ツモ点数を正しく入力してください。');
+      basePayLabel = `${fmt(ko)} / ${fmt(oya)}`;
+      for (let pid of t.seats) {
+        if (pid !== w) {
+          let baseAmt = (pid === dealer) ? oya : ko;
+          let x = baseAmt + t.honba * 100;
+          pays.push([pid, x]); sum += x; baseTotal += baseAmt;
+        }
+      }
+    }
+
+    boardUpdate(`${boardRound(t)}：${pl(w).name} ツモ（${pays.map(([pid, x]) => pl(pid).name + ' ' + fmt(x)).join('、')}点／${basePayLabel}）`, tt => {
+      for (let [pid, x] of pays) tt.points[pid] -= x;
+      tt.points[w] += sum + tt.pot; tt.pot = 0; tt.yakitori[w] = false; boardAdvance(tt, w);
+    }, { type: 'tsumo', winner: w, basePoints: baseTotal, han: '手動', fu: '-', honba: t.honba, roundIndex: t.roundIndex, riichiPlayers: t.seats.filter(pid => t.riichi[pid]) });
+    
+    boardPanel = ''; render();
+    if (t.ended) window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
+  }
+
+  if (action === 'board-edit-save') {
+    let newKyoku = Number(document.getElementById('edit-kyoku').value);
+    let newHonba = Number(document.getElementById('edit-honba').value);
+    let newPot = Number(document.getElementById('edit-pot').value);
+    
+    if (newKyoku < 1) return boardAlert('局数は1以上で入力してください。');
+    if (newHonba < 0 || newPot < 0 || newPot % 1000 !== 0) return boardAlert('本場は0以上、供託は1000単位で入力してください。');
+
+    let newPoints = {};
+    for (let id of t.seats) newPoints[id] = Number(document.getElementById(`edit-point-${id}`).value);
+
+    boardUpdate(`状態を強制上書き（第${newKyoku}局・${newHonba}本場）`, tt => {
+      tt.roundIndex = newKyoku - 1;
+      tt.honba = newHonba;
+      tt.pot = newPot;
+      for (let id of tt.seats) tt.points[id] = newPoints[id];
+    }, { type: 'edit' });
+    
+    boardPanel = ''; render();
+    return;
+  }
+
+  // --- 以降は既存の処理そのまま ---
+  if (action === 'board-draw-save') {
+    let tenpai = [...document.querySelectorAll('[data-board-tenpai]:checked')].map(x => x.dataset.boardTenpai);
+    let pt = boardNotenPool(t);
+    if (!validAmount(pt, true)) return boardAlert('流局罰符は0以上の100点単位で入力してください。');
+    let deltas = boardNotenDeltas(t, tenpai, pt);
+    if (!deltas) return boardAlert('聴牌者・ノーテン者間で100点単位に均等配分できる罰符を指定してください。');
+    let again = tenpai.includes(boardDealer(t));
+    boardUpdate(`${boardRound(t)}：流局（聴牌 ${tenpai.length}人、${again ? '親の聴牌・連荘' : '親流れ'}、罰符${fmt(tenpai.length === 0 || tenpai.length === n ? 0 : pt)}点）`, tt => {
+      for (let id of tt.seats) tt.points[id] += deltas[id];
+      if (!boardMaybeEnd(tt, again)) { tt.honba += 1; if (!again) tt.roundIndex += 1; }
+      for (let id of tt.seats) { tt.riichi[id] = false; tt.furo[id] = false; }
+    }, { type: 'draw', tenpai, roundIndex: t.roundIndex, honba: t.honba, riichiPlayers: t.seats.filter(pid => t.riichi[pid]) });
+    boardPanel = ''; render();
+    if (t.ended) window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
+  }
+
+  if (action === 'board-manual-save' || action === 'board-all-save') {
+    let from = boardRead('board-from'), to = boardRead('board-to'), amt = boardRead('board-amount');
+    if (!validAmount(amt)) return boardAlert('移動する点数は100点単位の正の整数で入力してください。');
+    let amount = Number(amt);
+    if (action === 'board-manual-save') {
+      if (from === to) return boardAlert('支払う人と受け取る人が同じです。');
+      boardUpdate(`${pl(from).name} → ${pl(to).name}：${fmt(amount)}点`, tt => { tt.points[from] -= amount; tt.points[to] += amount; });
+    } else {
+      boardUpdate(`${pl(to).name}が全員から${fmt(amount)}点受け取り`, tt => {
+        for (let id of tt.seats) if (id !== to) { tt.points[id] -= amount; tt.points[to] += amount; }
+      });
+    }
+    return;
+  }
+
+  if (action === 'board-pot-save') {
+    let to = boardRead('board-recipient');
+    if (t.pot <= 0) return boardAlert('供託はありません。');
+    boardUpdate(`${pl(to).name}が供託${fmt(t.pot)}点を回収`, tt => { tt.points[to] += tt.pot; tt.pot = 0; });
+    boardPanel = ''; render(); return;
+  }
+
+  if (action === 'board-finish-save') {
+    if (t.pot !== 0) return boardAlert('供託が残っています。先に回収してください。');
+    if (t.seats.reduce((a, id) => a + Number(t.points[id]), 0) !== t.seats.length * t.start) return boardAlert('持ち点の合計が一致しません。');
+    let u = umaOf(t.rules);
+    if (u.reduce((a, b) => a + Number(b), 0) !== 0) return boardAlert('ウマ合計が0ではありません。ルールを確認してください。');
+    if (!confirm('この半荘を成績に記録して、対局卓を終了します。よろしいですか？')) return;
+    let note = boardRead('board-finish-note')?.trim() || '対局卓から記録';
+    let obj = { id: getId(), date: localDate(), note, seats: t.seats.slice(), scores: { ...t.points }, rules: clone(t.rules), createdAt: new Date().toISOString(), handHistory: t.events.map(({ before, ...e }) => e), boardRecorded: true, handSeats: t.seats.slice(), seatNames: Object.fromEntries(t.seats.map(pid => [pid, pl(pid).name])) };
+    st.games.unshift(obj);
+    st.games.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+    st.pointTable = null; boardPanel = ''; save(); initialDraft(); goto('overview'); notify('半荘のポイントと成績を保存しました！'); return;
+  }
+}
 function pointStart(){let sels=[...document.querySelectorAll('[data-stick-seat]')].map(x=>x.value);if(new Set(sels).size!==sels.length){notify('異なるメンバーを指定してください。',true);return}let start=Number(st.settings.start),r=clone(st.settings);st.pointTable={seats:sels,start,rules:r,points:Object.fromEntries(sels.map(x=>[x,start])),pot:0,events:[],createdAt:new Date().toISOString(),roundIndex:0,honba:0,riichi:{},furo:{},chips:{},yakitori:{}};upgradeBoard(st.pointTable);boardPanel='';save();render();notify('半荘を開始しました')}
 function pointEvent(desc,newPoints,newPot){boardUpdate(desc,t=>{t.points=newPoints;t.pot=newPot})}
 function operatePoint(action){let t=st.pointTable;if(!t)return;upgradeBoard(t);if(action==='undo-point'){let e=t.events.pop();if(!e)return;Object.assign(t,e.before);t.ended=e.before.ended??false;t.endRoundLabel=e.before.endRoundLabel??'';upgradeBoard(t);boardPanel='';save();render();notify('直前の操作を取り消しました');return}
@@ -1270,7 +1447,7 @@ function resizePhoto(file){return new Promise((resolve,reject)=>{let img=new Ima
  case 'board-open':if(st.pointTable?.ended&&['ron','tsumo','draw'].includes(b.dataset.panel)){notify('終局済みのため新しい局を記録できません。',true);break}boardPanel=b.dataset.panel;render();if(boardPanel==='draw')syncBoardNotenPreview();document.getElementById('live-editor')?.scrollIntoView({block:'nearest',behavior:'smooth'});break;
  case 'projection-toggle':projectionMode=!projectionMode;render();break;
  case 'board-close':boardPanel='';render();break;
- case 'board-reach':case 'board-ron-save':case 'board-tsumo-save':case 'board-draw-save':case 'board-manual-save':case 'board-all-save':case 'board-pot-save':case 'board-finish-save':boardAction(a,id);break;
+ case 'board-reach':case 'board-ron-save':case 'board-tsumo-save':case 'board-draw-save':case 'board-manual-save':case 'board-all-save':case 'board-pot-save':case 'board-finish-save':case 'board-edit-save':boardAction(a,id);break;
  case 'new-point':pointStart();break;case 'transfer':case 'pay-all':case 'reach':case 'take-pot':case 'undo-point':{let f=document.getElementById('point-from'),t=document.getElementById('point-to'),m=document.getElementById('point-amount');if(f){pointsControls={from:Number(f.value),to:Number(t.value),amount:Number(m.value)}}operatePoint(a);break}
  case 'point-to-entry':pointToEntry();break;case 'reset-point':if(confirm('点棒管理の履歴を終了・削除しますか？ 事前に対局入力へ反映することをおすすめします。')){st.pointTable=null;boardPanel='';save();render()}break;
  case 'pick-tile':{const code=b.dataset.tile;if(!Object.prototype.hasOwnProperty.call(TILE_LABELS,code))break;const type=document.getElementById('member-icon-type')?.value;document.getElementById('member-tile-choice').value=(type==='regular'?'tile-regular:':'tile:')+code;document.querySelectorAll('.tile-option').forEach(x=>{const selected=x.dataset.tile===code;x.classList.toggle('selected',selected);x.setAttribute('aria-pressed',String(selected))});syncMemberIconMode();break}
