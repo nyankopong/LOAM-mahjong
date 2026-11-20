@@ -306,6 +306,10 @@ body.viewer [data-action="new-point"],body.viewer [data-action="member-edit"]{di
 .spectator-rank-row .playerline{gap:7px}
 .spectator-rank-row strong{white-space:nowrap;font-variant-numeric:tabular-nums}
 body.viewer .board-stage .live-player .live-buttons{display:none!important}
+.modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(16,34,27,.48);display:grid;place-items:center;padding:18px}
+.modal-box{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;max-width:440px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.22)}
+.modal-box p{margin:0 0 18px;line-height:1.7;white-space:pre-line;color:var(--ink);font-weight:600}
+.modal-actions{display:flex;justify-content:flex-end;gap:9px}
 @media(max-width:650px){.spectator-status{padding:11px 12px}.spectator-rank-row strong{font-size:13px}}
 </style>
 <script id="janlog-config" type="application/json">{"url":"https://epicqgpirzgtssqsswnp.supabase.co","key":"sb_publishable_vD6EitqVQY4iXn_wxm5PFw_t435hSIH"}</script>
@@ -450,14 +454,25 @@ function exportConfiguredHtml(){
  if(html===originalHtml)return notify('公開用HTMLを書き出せませんでした。',true);
  download(html,'index.html','text/html;charset=utf-8');notify('設定済みindex.htmlをダウンロードしました。GitHubで差し替えてください。');
 }
-function importLocal(){
+async function importLocal(){
  if(!isAdmin())return notify('管理者ログインが必要です。',true);
  let raw;try{raw=JSON.parse(localStorage.getItem(STORE)||'null')}catch(e){}
  if(!raw?.players||!Array.isArray(raw.games))return notify('以前の端末データは見つかりませんでした。',true);
- if(!confirm(`この端末の旧データ（${raw.games.length}半荘）でクラウドの全記録を置き換えます。\n他端末のデータは消えます。あらかじめJSONバックアップを保存してください。実行しますか？`))return;
+ if(!(await showConfirmModal(`この端末の旧データ（${raw.games.length}半荘）でクラウドの全記録を置き換えます。\n他端末のデータは消えます。あらかじめJSONバックアップを保存してください。実行しますか？`)))return;
  st=normalizeState(raw);initialDraft();save();view='overview';render();
 }
 
+function showConfirmModal(msg){
+ return new Promise(resolve=>{
+  const wrap=document.createElement('div');
+  wrap.className='modal-backdrop';
+  wrap.innerHTML=`<div class="modal-box" role="dialog" aria-modal="true"><p>${esc(msg)}</p><div class="modal-actions"><button type="button" class="btn ghost" data-modal="cancel">キャンセル</button><button type="button" class="btn" data-modal="ok">OK</button></div></div>`;
+  const close=val=>{wrap.remove();resolve(val)};
+  wrap.addEventListener('click',e=>{if(e.target===wrap||e.target.closest('[data-modal="cancel"]'))close(false);else if(e.target.closest('[data-modal="ok"]'))close(true)});
+  document.body.appendChild(wrap);
+  wrap.querySelector('[data-modal="ok"]')?.focus();
+ });
+}
 function notify(msg,bad=false){let x=document.getElementById('toast');if(!x){x=document.createElement('div');x.id='toast';Object.assign(x.style,{position:'fixed',bottom:'22px',right:'20px',maxWidth:'min(430px,calc(100vw - 40px))',zIndex:'50',padding:'14px 19px',boxShadow:'0 12px 35px #0003',borderRadius:'13px',color:'white',fontWeight:'730'});document.body.appendChild(x)}x.style.background=bad?'#a34139':'#1f604b';x.textContent=msg;clearTimeout(notify.t);notify.t=setTimeout(()=>x.remove(),3400)}
 const pl=id=>st.players.find(x=>x.id===id)||{name:'削除されたメンバー',avatar:'🀄',id};
 
@@ -806,151 +821,27 @@ function changeHistoricRule(kind,value){
  // 未保存の入力内容を保ったまま再描画する。
  render();
 }
-function entry(){let r=rulesOf(),n=nPlayers(r),validSeats=draft.seats.length===n&&new Set(draft.seats).size===n;let hypothetical={seats:draft.seats,scores:draft.scores,rules:r};let projected=validSeats?scoreGame(hypothetical):[];let total=draft.seats.reduce((s,id)=>s+Number(draft.scores[id]||0),0),target=n*Number(r.start),diff=target-total;
+function parseScoreInput(v){if(v===''||v==null)return null;const n=Number(v);return Number.isFinite(n)?n:null}
+function entryScoreState(r){
+ const n=nPlayers(r),scores={};let hasInvalid=false,total=0;
+ for(const id of draft.seats){
+  const val=parseScoreInput(draft.scores[id]);
+  if(val===null){hasInvalid=true;scores[id]=0}
+  else{scores[id]=val;total+=val}
+ }
+ return {scores,hasInvalid,total,target:n*Number(r.start)};
+}
+function entry(){let r=rulesOf(),n=nPlayers(r),validSeats=draft.seats.length===n&&new Set(draft.seats).size===n;let {scores,hasInvalid,total,target}=entryScoreState(r),diff=target-total;let hypothetical={seats:draft.seats,scores,rules:r};let projected=validSeats?scoreGame(hypothetical):[];
  return page(draft.editing?'対局結果を編集':'対局結果を入力','最終持ち点を入力すると、順位点・ウマ・オカを反映したポイントを計算します。',`
  <div class="grid cols2" style="grid-template-columns:minmax(0,1.35fr) minmax(0,.8fr);align-items:start" id="entry-columns">
  <section class="panel"><div class="row between"><h2 style="margin:0">${draft.editing?'記録を修正':'新しい半荘'}</h2><span class="badge gold">${n}人麻雀</span></div><div class="formgrid" style="margin-top:20px"><div class="field"><label for="entry-date">対局日</label><input type="date" id="entry-date" value="${esc(draft.date)}"></div><div class="field" style="grid-column:span 2"><label for="entry-note">メモ（任意）</label><input id="entry-note" placeholder="例：研究室でのセット" maxlength="80" value="${esc(draft.note)}"></div></div><div class="row between" style="margin-top:25px"><h3 style="margin:0">参加者と終局点数</h3>${n===3&&st.players.length>3?`<button class="btn soft sm" data-action="rotate-entry">抜け番を次へ ⇄</button>`:''}</div>
- <div style="margin-top:7px">${draft.seats.map((id,i)=>`<div class="select-row"><div class="wind">${WIND[i]}</div><div class="field"><label>プレイヤー</label><select data-entry="seat" data-seat="${i}">${st.players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div><div class="field"><label>終局点（点）</label><input type="number" step="100" data-entry="score" data-id="${esc(id)}" value="${Number(draft.scores[id]??r.start)}"></div></div>`).join('')}</div>
+ <div style="margin-top:7px">${draft.seats.map((id,i)=>{const raw=draft.scores[id];const val=raw===''?'':(raw==null?r.start:(Number.isFinite(Number(raw))?Number(raw):''));return `<div class="select-row"><div class="wind">${WIND[i]}</div><div class="field"><label>プレイヤー</label><select data-entry="seat" data-seat="${i}">${st.players.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div><div class="field"><label>終局点（点）</label><input type="number" step="100" data-entry="score" data-id="${esc(id)}" value="${val}"></div></div>`}).join('')}</div>
  ${historicRuleEditor(r)}
- <div id="entry-check">${entryValidation(total,target,diff)}</div><div class="row" style="margin-top:17px"><button class="btn" data-action="save-game">${draft.editing?'変更を保存':'この半荘を記録する'}</button>${draft.editing?`<button class="btn ghost" data-action="cancel-edit">編集をやめる</button>`:`<button class="btn ghost" data-action="reset-entry">入力をリセット</button>`}</div></section>
+ <div id="entry-check">${entryValidation(total,target,diff,hasInvalid)}</div><div class="row" style="margin-top:17px"><button class="btn" data-action="save-game">${draft.editing?'変更を保存':'この半荘を記録する'}</button>${draft.editing?`<button class="btn ghost" data-action="cancel-edit">編集をやめる</button>`:`<button class="btn ghost" data-action="reset-entry">入力をリセット</button>`}</div></section>
  <section class="panel"><div class="row between"><h2 style="margin:0">計算プレビュー</h2><span class="badge">${esc(String(n))}人</span></div><div id="entry-preview" style="margin-top:20px">${entryPreview(projected,r)}</div><div id="historic-score-comparison">${historicScoreComparison()}</div><div class="panel-divider"></div><div class="subhead">${draft.editing?'この半荘に適用するルール':'適用されるルール'}</div><div class="line-stat"><span class="muted">持ち点 / 返し点</span><strong id="entry-rule-points">${fmt(r.start)} / ${fmt(r.return)}</strong></div><div class="line-stat"><span class="muted">ウマ（1着から）</span><strong id="entry-rule-uma">${umaOf(r).map(x=>signed(x)).join(' / ')}</strong></div><p class="hint" style="margin-top:20px">同点は席順（東→南→西→北）が早い人を上位にします。${draft.editing?'この画面の「変更を保存」で選択した半荘だけ更新されます。':'ルール設定で条件を変更できます。'}</p>${draft.editing?'':'<button class="btn ghost sm" data-action="goto" data-view="rules">ルール設定を開く →</button>'}</section></div>
- <style>@media(max-width:800px){#entry-columns{grid-template-columns:1fr!important}}
-/* v6 — PC投影向け左右分割レイアウト（対局中の画面だけに適用） */
-body.board-view main{max-width:1680px;padding:14px 22px 25px}
-body.board-view .page-title,body.board-view .page-desc{display:none}
-body.board-view .top{max-width:1680px;padding:10px 22px 8px}
-body.board-view .nav{max-width:1680px;padding:0 22px}
-body.board-view .nav button{padding:9px 18px}
-body.board-view footer{display:none}
-.board-workspace{display:grid;grid-template-columns:minmax(0,1.87fr) minmax(355px,.94fr);align-items:start;gap:17px}
-.board-stage,.board-sidebar{min-width:0}
-.board-stage{display:flex;flex-direction:column}
-.board-stage .live-board{max-width:none;width:100%;padding:14px;margin:0;border:2px solid #a2bfae;border-radius:22px}
-.board-stage .table-layout{grid-template-columns:minmax(130px,1fr) minmax(240px,1.75fr) minmax(130px,1fr);grid-template-rows:clamp(116px,16vh,156px) clamp(270px,37vh,394px) clamp(116px,16vh,156px);gap:10px}
-.board-stage .live-player{padding:13px;gap:10px;border-width:2px;border-radius:15px}
-.board-stage .live-player-top{justify-content:space-between;align-items:center;flex-wrap:wrap}
-.board-stage .live-player .playerline{min-width:0;gap:8px}
-.board-stage .live-player .avatar{width:34px;height:34px;font-size:22px}
-.board-stage .live-player .name{font-size:clamp(16px,1.35vw,22px);line-height:1.3;overflow-wrap:anywhere}
-.board-stage .live-points{font-size:clamp(25px,2.65vw,44px);font-weight:900;letter-spacing:-.045em}
-.board-stage .live-rank{font-size:clamp(12px,1.04vw,17px);padding:4px 9px;border-radius:8px}
-.board-stage .live-rank-line{align-items:center;gap:5px}
-.board-stage .live-tags{min-height:0;margin:0}
-.board-stage .live-tag{font-size:13px;font-weight:800;padding:4px 8px}
-.dealer-indicator{flex:none;background:#df6559;color:white;border-radius:6px;font-size:13px;font-weight:900;padding:3px 8px}
-.board-stage .live-player.active-wind{background:#fffaf1;border-color:#d3a33d}
-.board-stage .live-player.is-reach{border-color:#d95751}
-.board-stage .live-buttons .btn{font-size:clamp(12px,1vw,15px);min-height:35px;padding:6px 5px}
-.board-stage .live-center{background:#fffef7;padding:12px;gap:18px;border-radius:18px}
-.board-stage .live-center .round-heading{font-size:clamp(20px,2.1vw,34px);letter-spacing:0;line-height:1.3;white-space:nowrap;font-weight:900}
-.board-stage .live-pot{font-size:clamp(14px,1.3vw,21px);padding:12px 7px;border-radius:10px}
-.board-stage .live-pot strong{font-size:1.25em}
-.live-center-hint{font-size:clamp(12px,1vw,16px);color:#537563;font-weight:700}
-.live-empty-seat{border:1px dashed #a5bfaf;border-radius:14px;display:grid;place-items:center;color:#6f9581;font-size:16px;background:#f8fff877}
-.board-sidebar{display:flex;flex-direction:column;gap:11px}
-.board-sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:7px;flex-wrap:wrap;padding:3px 1px}
-.board-sidebar-head strong{font-size:15px;white-space:nowrap}
-.board-sidebar .panel{margin:0;padding:14px 17px;border-radius:13px}
-.board-sidebar h2{font-size:18px;margin:0 0 12px}
-.board-control-panel .board-primary-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.board-primary-actions .btn{font-size:19px;font-weight:850;min-height:50px;padding:8px;border-radius:10px}
-.board-primary-actions .rose{background:#be544c;border-color:#be544c}
-.board-primary-actions .rose:hover{background:#a43d36}
-.board-quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
-.board-quick-actions .btn{font-size:13px;min-width:0;padding:5px 4px;min-height:38px}
-.board-history h2{margin:0}
-.board-history .live-logs{max-height:clamp(180px,34vh,450px);overflow:auto;margin-top:10px}
-.board-history .event{padding:11px 0;align-items:start;gap:8px}
-.board-history .event-text{display:flex;flex-direction:column;gap:4px;min-width:0}
-.board-history .event-text strong{font-size:14px;line-height:1.55;font-weight:750;overflow-wrap:anywhere}
-.board-history .event-text span{font-size:12px;color:#748277}
-.board-history .event-index{font-size:12px;color:#71847a;flex:none}
-.board-sidebar .live-panel .formgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.board-sidebar .live-panel .formgrid>.field:last-child:nth-child(3){grid-column:1/-1}
-.board-sidebar .live-panel .score-picker-field{grid-column:1/-1}
-.board-sidebar .live-panel .field select,.board-sidebar .live-panel .field input{padding:10px 8px}
-.board-sidebar .live-panel .hint{margin:9px 0;font-size:12px;line-height:1.55}
-.board-sidebar .live-actions-footer{margin-top:10px}
-.board-sidebar .live-panel .score-preview{grid-template-columns:repeat(2,1fr)}
-.board-finish-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.board-finish-row>.btn{font-size:15px;flex:1;min-height:48px}
-.board-more{color:#647269;font-weight:750;font-size:13px;position:relative}
-.board-more summary{cursor:pointer;padding:10px}
-.board-more-content{position:absolute;right:0;z-index:4;min-width:240px;padding:14px;background:white;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:9px}
-body.projection-mode header,body.projection-mode footer{display:none}
-body.projection-mode.board-view main{max-width:100%;padding:10px 14px}
-body.projection-mode .board-stage .table-layout{grid-template-rows:clamp(130px,19vh,200px) clamp(300px,45vh,500px) clamp(130px,19vh,200px)}
-body.projection-mode .board-stage .live-points{font-size:clamp(30px,2.8vw,51px)}
-body.projection-mode .board-stage .live-center .round-heading{font-size:clamp(22px,2.3vw,39px)}
-@media(max-width:1199px){
- .board-workspace{grid-template-columns:1fr}
- .board-stage .live-board{max-width:850px;margin:0 auto}
- .board-stage .table-layout{grid-template-rows:140px 315px 140px}
- .board-sidebar{max-width:850px;width:100%;margin:0 auto}
- .board-history .live-logs{max-height:350px}
- body.board-view main{padding:15px 16px 30px}
+ <style>@media(max-width:800px){#entry-columns{grid-template-columns:1fr!important}}</style>`)
 }
-@media(max-width:800px){
- .board-stage .live-board{padding:9px}
- .board-stage .table-layout{grid-template-columns:minmax(83px,1fr) minmax(155px,2fr) minmax(83px,1fr);grid-template-rows:160px 255px 160px;gap:7px}
- .board-stage .live-player{padding:7px;gap:6px}
- .board-stage .live-player .avatar{width:23px;height:23px;font-size:14px}
- .board-stage .live-player .name{font-size:13px}
- .board-stage .live-points{font-size:22px}
- .board-stage .live-player.lp-west .live-points,.board-stage .live-player.lp-east .live-points{font-size:19px}
- .board-stage .live-player.lp-west .playerline,.board-stage .live-player.lp-east .playerline{flex-direction:column;align-items:start;gap:3px}
- .board-stage .live-player.lp-west .live-buttons,.board-stage .live-player.lp-east .live-buttons{flex-direction:column}
- .board-stage .live-rank{font-size:12px;padding:2px 5px}
- .board-stage .live-rank-line{flex-direction:column;align-items:flex-start;gap:4px}
- .board-stage .live-buttons .btn{font-size:11px;min-height:27px;padding:3px 4px}
- .board-stage .live-center{gap:9px;padding:7px}
- .board-stage .live-center .round-heading{font-size:clamp(17px,3vw,23px)}
- .board-stage .live-pot{font-size:13px;padding:7px 3px}
- .live-center-hint{font-size:11px}
- .dealer-indicator{font-size:11px;padding:2px 5px}
- .board-stage .live-tag{font-size:10px;padding:2px 5px}
-}
-@media(max-width:480px){
- .board-stage .table-layout{grid-template-columns:minmax(70px,1fr) minmax(140px,1.85fr) minmax(70px,1fr);grid-template-rows:160px 240px 160px;gap:5px}
- .board-stage .live-board{padding:6px;border-radius:13px}
- .board-stage .live-player{padding:5px;gap:6px}
- .board-stage .live-player .name{font-size:12px}
- .board-stage .live-player.lp-west .live-points,.board-stage .live-player.lp-east .live-points{font-size:16px}
- .board-stage .live-player.lp-north .live-points,.board-stage .live-player.lp-south .live-points{font-size:24px}
- .board-stage .live-center .round-heading{font-size:clamp(14px,4vw,19px)}
- .board-stage .live-center{padding:5px;gap:9px}
- .board-stage .live-rank{font-size:11px}
- .board-stage .live-player .avatar{width:20px;height:20px;font-size:12px}
- .board-stage .live-player.lp-west .playerline,.board-stage .live-player.lp-east .playerline{flex-direction:column}
- .board-stage .live-player.lp-west .live-player-top,.board-stage .live-player.lp-east .live-player-top{flex-direction:column;align-items:start}
- .board-stage .live-buttons .btn{font-size:10px;min-height:26px}
- .board-sidebar .panel{padding:13px}
- .board-primary-actions .btn{min-height:48px}
-}
-
-
-/* 横向きの上下席では、局名とボタンが重ならないよう高さ内に納める */
-.board-stage .lp-north,.board-stage .lp-south{padding:8px 11px;gap:4px}
-.board-stage .lp-north .live-player-top,.board-stage .lp-south .live-player-top{min-height:24px}
-.board-stage .lp-north .avatar,.board-stage .lp-south .avatar{width:26px;height:26px;font-size:17px}
-.board-stage .lp-north .live-points,.board-stage .lp-south .live-points{font-size:clamp(24px,2.25vw,38px)}
-.board-stage .lp-north .live-buttons .btn,.board-stage .lp-south .live-buttons .btn{min-height:26px;padding:3px 5px}
-.board-stage .live-tags:empty{display:none}
-@media(min-width:1200px){
- .board-stage .lp-north .live-rank-line,.board-stage .lp-south .live-rank-line{flex-wrap:nowrap}
- .board-stage .lp-north .live-buttons,.board-stage .lp-south .live-buttons{flex-wrap:nowrap}
-}
-@media(max-width:800px){
- .board-stage .lp-north,.board-stage .lp-south{padding:7px;gap:6px}
- .board-stage .lp-north .live-points,.board-stage .lp-south .live-points{font-size:22px}
- .board-stage .lp-north .live-buttons .btn,.board-stage .lp-south .live-buttons .btn{min-height:27px}
-}
-.board-sidebar-head{justify-content:flex-end}
-.board-stage .live-status{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
-.board-stage .live-status .live-tag{min-height:0}
-@media(max-width:480px){.board-stage .lp-west .live-status,.board-stage .lp-east .live-status{justify-content:flex-start}}
-</style>`)}
-function entryValidation(total,target,diff){let bad=diff!==0;return `<div class="notice ${bad?'error':'ok'}" style="margin-top:20px"><strong>持ち点合計：${fmt(total)} / ${fmt(target)} 点</strong><div>${bad?`あと ${signed(diff)} 点の調整が必要です。${diff<0?'入力が合計を超えています。':''}`:'✓ 持ち点合計が一致しています。保存できます。'}</div></div>`}
+function entryValidation(total,target,diff,hasInvalid=false){if(hasInvalid)return `<div class="notice error" style="margin-top:20px"><strong>持ち点合計：${fmt(total)} / ${fmt(target)} 点（入力中）</strong><div>未入力または数値でない終局点があります。全員の点数を入力してください。</div></div>`;let bad=diff!==0;return `<div class="notice ${bad?'error':'ok'}" style="margin-top:20px"><strong>持ち点合計：${fmt(total)} / ${fmt(target)} 点</strong><div>${bad?`あと ${signed(diff)} 点の調整が必要です。${diff<0?'入力が合計を超えています。':''}`:'✓ 持ち点合計が一致しています。保存できます。'}</div></div>`}
 function entryPreview(scores,r){return `<div class="score-preview">${scores.map(s=>`<div class="item"><span>${s.rank}着 · ${esc(pl(s.id).name)}</span><strong class="${tone(s.score)}">${signed(s.score)}</strong><span>pt</span></div>`).join('')}</div><p class="hint" style="margin-top:15px">ポイントには着順ウマとトップ賞（オカ）を含みます。</p>`}
 function boardRound(t){let n=t.seats.length,k=Number(t.roundIndex||0),wind=Math.floor(k/n);return `${['東','南','西','北'][wind]||'延長'}${k%n+1}局`}
 function boardDealer(t){return t.seats[Number(t.roundIndex||0)%t.seats.length]}
@@ -1043,10 +934,24 @@ function scoreChoiceMarkup(t,kind,winner,previous,chosenHan){
   <div class="score-stage-step"><label for="board-score">② 符・打点</label><select id="board-score" aria-label="符と打点を選択">${contained.map(x=>`<option value="${esc(x.value)}" ${x.value===chosen.value?'selected':''}>${esc(scoreSubLabel(x))}</option>`).join('')}</select></div>
  </div>`;
 }
+function tsumoInputsMarkup(t,winnerId){
+ const fld=(lab,body,cls="")=>`<div class="field ${cls}"><label>${lab}</label>${body}</div>`;
+ const num=(id,v)=>`<input type="number" id="${id}" min="0" step="100" value="${v}" inputmode="numeric">`;
+ const isDealer=winnerId===boardDealer(t);
+ return isDealer
+  ?fld('オール（1人あたりの支払額）',num('board-tsumo-all',1000))
+  :`${fld('子の支払い',num('board-tsumo-ko',1000))}${fld('親の支払い',num('board-tsumo-oya',2000))}`;
+}
 function syncBoardScoringChoice(source='winner'){
  const t=st.pointTable,w=document.getElementById('board-winner')?.value;
+ if(!t||!w)return;
+ if(boardPanel==='tsumo'){
+  const box=document.getElementById('board-tsumo-inputs');
+  if(box)box.innerHTML=tsumoInputsMarkup(t,w);
+  return;
+ }
  const box=document.getElementById('board-score-pickers');
- if(!t||!w||!box||!['ron','tsumo'].includes(boardPanel))return;
+ if(!box||!['ron','tsumo'].includes(boardPanel))return;
  const previous=source==='han'?null:document.getElementById('board-score')?.value;
  const han=document.getElementById('board-han')?.value;
  box.outerHTML=scoreChoiceMarkup(t,boardPanel,w,previous,han);
@@ -1078,7 +983,7 @@ function syncBoardNotenPreview(){
 function boardForm(t) {
   let n = t.seats.length, ids = t.seats;
   const fld = (lab, body, cls = "") => `<div class="field ${cls}"><label>${lab}</label>${body}</div>`;
-  const num = (id, v) => `<input type="number" id="${id}" min="0" step="100" value="${v}" inputmode="numeric">`;
+  const num = (id, v, step = 100, min = 0) => `<input type="number" id="${id}"${min!==''&&min!=null?` min="${min}"`:''} step="${step}" value="${v}" inputmode="numeric">`;
 
   if(boardPanel === 'ron') {
     return `<h3 class="live-subtitle">ロン和了を記録</h3><div class="formgrid">
@@ -1090,24 +995,20 @@ function boardForm(t) {
   }
 
   if(boardPanel === 'tsumo') {
-    const isDealer = ids[0] === boardDealer(t);
-    const tsumoInputs = isDealer 
-      ? fld('オール（1人あたりの支払額）', num('board-tsumo-all', 1000))
-      : `${fld('子の支払い', num('board-tsumo-ko', 1000))}${fld('親の支払い', num('board-tsumo-oya', 2000))}`;
     return `<h3 class="live-subtitle">ツモ和了を記録</h3><div class="formgrid">
       ${fld('和了者', boardSelect('board-winner'))}
-      ${tsumoInputs}
+      <div id="board-tsumo-inputs" style="display:contents">${tsumoInputsMarkup(t, ids[0])}</div>
     </div><p class="hint">ツモの支払額を直接入力してください。各自に本場×100点を加算し、供託は自動回収します。3麻はツモ損（2人支払い）になります。</p>
     <div class="live-actions-footer"><button class="btn" data-action="board-tsumo-save">ツモを確定</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
   }
 
   if(boardPanel === 'edit') {
     return `<h3 class="live-subtitle">局・点棒の強制上書き</h3><div class="formgrid">
-      ${fld('局数 (1=東1局, 5=南1局)', num('edit-kyoku', (t.roundIndex || 0) + 1))}
-      ${fld('本場', num('edit-honba', t.honba || 0))}
-      ${fld('供託', num('edit-pot', t.pot || 0))}
+      ${fld('局数 (1=東1局, 5=南1局)', num('edit-kyoku', (t.roundIndex || 0) + 1, 1, 1))}
+      ${fld('本場', num('edit-honba', t.honba || 0, 1, 0))}
+      ${fld('供託', num('edit-pot', t.pot || 0, 1000, 0))}
     </div><h4 style="margin-top:16px;">各プレイヤーの持ち点</h4><div class="formgrid">
-      ${ids.map(id => fld(esc(pl(id).name), num(`edit-point-${id}`, t.points[id]))).join('')}
+      ${ids.map(id => fld(esc(pl(id).name), num(`edit-point-${id}`, t.points[id], 100, ''))).join('')}
     </div><p class="hint">途中から記録を開始する場合や、入力ミスを強制的に修正する場合に使用します。</p>
     <div class="live-actions-footer"><button class="btn" data-action="board-edit-save">この状態で上書き保存</button><button class="btn ghost" data-action="board-close">閉じる</button></div>`;
   }
@@ -1213,10 +1114,10 @@ function rules(){let r=st.settings,arr=umaOf(r);return page('ルール設定','�
 }
 function goto(v){if(!isAdmin()&&!['overview','stats','sticks','login'].includes(v)){notify('この機能は管理者ログイン後に利用できます。',true);return}view=v;render();window.scrollTo({top:0,behavior:'instant'})}
 function rotate(ids){let all=st.players.map(p=>p.id),i=all.indexOf(ids[0]);if(all.length<=ids.length)return ids;return Array.from({length:ids.length},(_,k)=>all[(i+k+1)%all.length])}
-function validScore(){let r=rulesOf(),n=nPlayers(r);if(!Number.isSafeInteger(Number(r.return))||Number(r.return)<0||Number(r.return)>1000000||Number(r.return)%100!==0)return '返し点は0〜1,000,000点の100点単位で入力してください。';if(draft.seats.length!==n||new Set(draft.seats).size!==n)return '参加者が重複しているか人数が足りません。';if(!draft.date)return '日付を入力してください。';for(let id of draft.seats){let x=Number(draft.scores[id]);if(!Number.isFinite(x)||x%100!==0)return '終局点は100点単位の数値で入力してください。'}if(draft.seats.reduce((s,id)=>s+Number(draft.scores[id]),0)!==n*r.start)return `持ち点の合計は${fmt(n*r.start)}点にしてください。`;let u=umaOf(r);if(u.some(x=>!Number.isFinite(Number(x)))||Math.abs(u.reduce((s,x)=>s+Number(x),0))>1e-8)return 'ウマの合計が0ptになっていません。ルールを確認してください。';return ''}
+function validScore(){let r=rulesOf(),n=nPlayers(r);if(!Number.isSafeInteger(Number(r.return))||Number(r.return)<0||Number(r.return)>1000000||Number(r.return)%100!==0)return '返し点は0〜1,000,000点の100点単位で入力してください。';if(draft.seats.length!==n||new Set(draft.seats).size!==n)return '参加者が重複しているか人数が足りません。';if(!draft.date)return '日付を入力してください。';for(let id of draft.seats){if(draft.scores[id]===''||draft.scores[id]==null)return '全員の終局点を入力してください。';let x=Number(draft.scores[id]);if(!Number.isSafeInteger(x)||x%100!==0)return '終局点は100点単位の整数で入力してください。'}if(draft.seats.reduce((s,id)=>s+Number(draft.scores[id]),0)!==n*r.start)return `持ち点の合計は${fmt(n*r.start)}点にしてください。`;let u=umaOf(r);if(u.some(x=>!Number.isFinite(Number(x)))||Math.abs(u.reduce((s,x)=>s+Number(x),0))>1e-8)return 'ウマの合計が0ptになっていません。ルールを確認してください。';return ''}
 function record(){let err=validScore();if(err){notify(err,true);return}let rules=clone(rulesOf()),obj={id:draft.editing||getId(),date:draft.date,note:draft.note,seats:draft.seats.slice(),scores:{...draft.scores},rules,createdAt:new Date().toISOString()};if(draft.editing){let idx=st.games.findIndex(x=>x.id===draft.editing);if(idx>=0){let old=st.games[idx];st.games[idx]={...old,...obj,createdAt:old.createdAt||obj.createdAt}}else{notify('元の対局履歴が見つかりません。',true);return}}else st.games.unshift(obj);st.games.sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));save();initialDraft();notify('対局結果を送信しました（保存状況を確認してください）');goto('overview')}
-function syncEntry(){if(view!=='entry')return;let r=rulesOf(),total=draft.seats.reduce((s,id)=>s+Number(draft.scores[id]||0),0),target=nPlayers(r)*Number(r.start);document.getElementById('entry-check').innerHTML=entryValidation(total,target,target-total);document.getElementById('entry-preview').innerHTML=entryPreview(scoreGame({seats:draft.seats,scores:draft.scores,rules:r}),r);let cmp=document.getElementById('historic-score-comparison');if(cmp)cmp.innerHTML=historicScoreComparison()}
-function applyPreset(preset){if(st.games.length&&!confirm('今後の対局に適用するルールを変更します。過去の対局には影響しません。続けますか？'))return;let presets={yonma:{mode:4,start:25000,return:30000,uma4:[30,10,-10,-30]},yonma30:{mode:4,start:30000,return:30000,uma4:[20,10,-10,-20]},sanma:{mode:3,start:35000,return:40000,uma3:[20,0,-20]}};Object.assign(st.settings,presets[preset]);save();initialDraft();render();notify('ルールの変更を送信しました')}
+function syncEntry(){if(view!=='entry')return;let r=rulesOf(),{scores,hasInvalid,total,target}=entryScoreState(r);document.getElementById('entry-check').innerHTML=entryValidation(total,target,target-total,hasInvalid);document.getElementById('entry-preview').innerHTML=entryPreview(scoreGame({seats:draft.seats,scores,rules:r}),r);let cmp=document.getElementById('historic-score-comparison');if(cmp)cmp.innerHTML=historicScoreComparison()}
+async function applyPreset(preset){if(st.games.length&&!(await showConfirmModal('今後の対局に適用するルールを変更します。過去の対局には影響しません。続けますか？')))return;let presets={yonma:{mode:4,start:25000,return:30000,uma4:[30,10,-10,-30]},yonma30:{mode:4,start:30000,return:30000,uma4:[20,10,-10,-20]},sanma:{mode:3,start:35000,return:40000,uma3:[20,0,-20]}};Object.assign(st.settings,presets[preset]);save();initialDraft();render();notify('ルールの変更を送信しました')}
 function updateRule(key,value){let oldMode=st.settings.mode;let n=Number(value);if(!Number.isFinite(n)||n<0||(['mode'].includes(key)&&![3,4].includes(n))){notify('設定値を確認してください',true);render();return}if(key==='mode'&&n>st.players.length){notify('参加者の人数が足りません。メンバーを追加してください。',true);render();return}st.settings[key]=n;if(key==='mode'&&oldMode!==n)initialDraft();save();render()}
 function toCSV(v){let str=String(v??'');if(typeof v==='string'&&/^[=+@\-\t\r]/.test(str))str="'"+str;return '"'+str.replace(/"/g,'""')+'"'}
 function makeCSV(rows){return '\ufeff'+rows.map(row=>row.map(toCSV).join(',')).join('\r\n')}
@@ -1224,7 +1125,7 @@ function download(txt,name,mime){let blob=new Blob([txt],{type:mime}),url=URL.cr
 function csv(){let rows=[['日付','メモ','形式','名前','席','順位','終局点','素点・ウマ・オカ（pt）','最終ポイント（pt）','持ち点','返し点']];for(let g of st.games){let scores=scoreGame(g);for(let x of scores){rows.push([g.date,g.note,g.seats.length,pl(x.id).name,WIND[g.seats.indexOf(x.id)],x.rank,x.points,x.base,x.score,g.rules.start,g.rules.return])}}download(makeCSV(rows),'麻雀スコア_明細_'+localDate()+'.csv','text/csv;charset=utf-8');notify('CSVを書き出しました')}
 function summaryCSV(){let rows=[['名前','対局数','累計ポイント','平均順位','トップ回数','トップ率(%)','ラス回数','ラス率(%)']];for(let x of sumStats().filter(x=>x.count)){rows.push([pl(x.id).name,x.count,x.score,round(x.totalRanks/x.count),x.first,round(100*x.first/x.count),x.fourth,round(100*x.fourth/x.count)])}download(makeCSV(rows),'麻雀スコア_集計_'+localDate()+'.csv','text/csv;charset=utf-8')}
 function backup(){download(JSON.stringify(st,null,2),'雀録_バックアップ_'+localDate()+'.json','application/json;charset=utf-8');notify('バックアップを保存しました')}
-async function importBackup(file){if(!file)return;try{let s=JSON.parse(await file.text());if(!s||!Array.isArray(s.players)||!Array.isArray(s.games)||!s.settings||!Array.isArray(s.settings.uma4)||!Array.isArray(s.settings.uma3))throw Error('形式が正しくありません');if(!confirm('現在の全データをバックアップの内容で置き換えます。よろしいですか？'))return;st=s;save();activeFilter='all';memberEdit=null;initialDraft();goto('overview');notify('バックアップの内容をクラウドへ送信しました')}catch(e){notify('JSONファイルを読み込めませんでした：'+e.message,true)}}
+async function importBackup(file){if(!file)return;try{let s=JSON.parse(await file.text());if(!s||!Array.isArray(s.players)||!Array.isArray(s.games)||!s.settings||!Array.isArray(s.settings.uma4)||!Array.isArray(s.settings.uma3))throw Error('形式が正しくありません');if(!(await showConfirmModal('現在の全データをバックアップの内容で置き換えます。よろしいですか？')))return;st=s;save();activeFilter='all';memberEdit=null;initialDraft();goto('overview');notify('バックアップの内容をクラウドへ送信しました')}catch(e){notify('JSONファイルを読み込めませんでした：'+e.message,true)}}
 function upgradeBoard(t){if(!t)return;t.rules??=clone(st.settings);t.roundIndex??=0;t.honba??=0;t.riichi??={};t.furo??={};t.chips??={};t.yakitori??={};t.ended??=false;t.endRoundLabel??='';for(let id of t.seats){t.riichi[id]??=false;t.furo[id]??=false;t.chips[id]??=0;t.yakitori[id]??=true}}
 function boardSnapshot(t){let x={};for(let k of ['points','pot','roundIndex','honba','riichi','furo','chips','yakitori','ended','endRoundLabel'])x[k]=clone(t[k]);return x}
 function boardUpdate(desc,fn,meta={}){let t=st.pointTable;if(!t)return;upgradeBoard(t);let before=boardSnapshot(t);fn(t);t.events.push({desc,at:new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}),before,...meta});save();render()}
@@ -1253,7 +1154,7 @@ function boardAdvance(t,winner){
  }
  for(const id of t.seats){t.riichi[id]=false;t.furo[id]=false}
 }
-function boardAction(action, id) {
+async function boardAction(action, id) {
   let t = st.pointTable;
   if (!t) return;
   upgradeBoard(t);
@@ -1274,9 +1175,10 @@ function boardAction(action, id) {
 
   if (action === 'board-ron-save') {
     let w = boardRead('board-winner'), l = boardRead('board-loser');
-    let base = Number(document.getElementById('board-ron-score').value);
+    let rawBase = document.getElementById('board-ron-score')?.value;
     if (w === l) return boardAlert('和了者と放銃者は別の人にしてください。');
-    if (!base || base <= 0) return boardAlert('ロン点数を正しく入力してください。');
+    if (!validAmount(rawBase)) return boardAlert('ロン点数は100点単位の正の整数で入力してください。');
+    let base = Number(rawBase);
 
     let pay = base + t.honba * 300;
     boardUpdate(`${boardRound(t)}：${pl(w).name} ロン、${pl(l).name}が${fmt(pay)}点支払い（直接入力）`, tt => {
@@ -1294,16 +1196,19 @@ function boardAction(action, id) {
     let sum = 0, pays = [], baseTotal = 0, basePayLabel = '';
 
     if (isDealer) {
-      let all = Number(document.getElementById('board-tsumo-all').value);
-      if (!all || all <= 0) return boardAlert('ツモ点数を正しく入力してください。');
+      let rawAll = document.getElementById('board-tsumo-all')?.value;
+      if (!validAmount(rawAll)) return boardAlert('ツモ点数は100点単位の正の整数で入力してください。');
+      let all = Number(rawAll);
       basePayLabel = `${fmt(all)}オール`;
       for (let pid of t.seats) {
         if (pid !== w) { let x = all + t.honba * 100; pays.push([pid, x]); sum += x; baseTotal += all; }
       }
     } else {
-      let ko = Number(document.getElementById('board-tsumo-ko').value);
-      let oya = Number(document.getElementById('board-tsumo-oya').value);
-      if (!ko || ko <= 0 || !oya || oya <= 0) return boardAlert('ツモ点数を正しく入力してください。');
+      let rawKo = document.getElementById('board-tsumo-ko')?.value;
+      let rawOya = document.getElementById('board-tsumo-oya')?.value;
+      if (!validAmount(rawKo) || !validAmount(rawOya)) return boardAlert('ツモ点数は100点単位の正の整数で入力してください。');
+      let ko = Number(rawKo);
+      let oya = Number(rawOya);
       basePayLabel = `${fmt(ko)} / ${fmt(oya)}`;
       for (let pid of t.seats) {
         if (pid !== w) {
@@ -1325,15 +1230,23 @@ function boardAction(action, id) {
   }
 
   if (action === 'board-edit-save') {
-    let newKyoku = Number(document.getElementById('edit-kyoku').value);
-    let newHonba = Number(document.getElementById('edit-honba').value);
-    let newPot = Number(document.getElementById('edit-pot').value);
-    
-    if (newKyoku < 1) return boardAlert('局数は1以上で入力してください。');
-    if (newHonba < 0 || newPot < 0 || newPot % 1000 !== 0) return boardAlert('本場は0以上、供託は1000単位で入力してください。');
+    let rawKyoku = document.getElementById('edit-kyoku')?.value;
+    let rawHonba = document.getElementById('edit-honba')?.value;
+    let rawPot = document.getElementById('edit-pot')?.value;
+    let newKyoku = Number(rawKyoku), newHonba = Number(rawHonba), newPot = Number(rawPot);
+    if (rawKyoku === '' || !Number.isSafeInteger(newKyoku) || newKyoku < 1) return boardAlert('局数は1以上の整数で入力してください。');
+    if (rawHonba === '' || !Number.isSafeInteger(newHonba) || newHonba < 0) return boardAlert('本場は0以上の整数で入力してください。');
+    if (rawPot === '' || !Number.isSafeInteger(newPot) || newPot < 0 || newPot % 1000 !== 0) return boardAlert('供託は0以上の1000点単位で入力してください。');
 
     let newPoints = {};
-    for (let id of t.seats) newPoints[id] = Number(document.getElementById(`edit-point-${id}`).value);
+    for (let id of t.seats) {
+      let rawPt = document.getElementById(`edit-point-${id}`)?.value;
+      let pt = Number(rawPt);
+      if (rawPt === '' || rawPt == null || !Number.isSafeInteger(pt) || pt % 100 !== 0) {
+        return boardAlert(`${pl(id).name}の持ち点は100点単位の整数で入力してください。`);
+      }
+      newPoints[id] = pt;
+    }
 
     boardUpdate(`状態を強制上書き（第${newKyoku}局・${newHonba}本場）`, tt => {
       tt.roundIndex = newKyoku - 1;
@@ -1391,7 +1304,7 @@ function boardAction(action, id) {
     if (t.seats.reduce((a, id) => a + Number(t.points[id]), 0) !== t.seats.length * t.start) return boardAlert('持ち点の合計が一致しません。');
     let u = umaOf(t.rules);
     if (u.reduce((a, b) => a + Number(b), 0) !== 0) return boardAlert('ウマ合計が0ではありません。ルールを確認してください。');
-    if (!confirm('この半荘を成績に記録して、対局卓を終了します。よろしいですか？')) return;
+    if (!(await showConfirmModal('この半荘を成績に記録して、対局卓を終了します。よろしいですか？'))) return;
     let note = boardRead('board-finish-note')?.trim() || '対局卓から記録';
     let obj = { id: getId(), date: localDate(), note, seats: t.seats.slice(), scores: { ...t.points }, rules: clone(t.rules), createdAt: new Date().toISOString(), handHistory: t.events.map(({ before, ...e }) => e), boardRecorded: true, handSeats: t.seats.slice(), seatNames: Object.fromEntries(t.seats.map(pid => [pid, pl(pid).name])) };
     st.games.unshift(obj);
@@ -1432,30 +1345,30 @@ function resizePhoto(file){return new Promise((resolve,reject)=>{let img=new Ima
  if(a==='refresh-cloud'){await writeChain;await loadCloud();return}
  if(a==='export-configured-html'){exportConfiguredHtml();return}
  if(a==='edit-config'){publicConfig={url:'',key:''};localStorage.removeItem(CONFIG_CACHE);db=null;authUser=null;cloudReady=false;render();return}
- if(a==='import-local'){importLocal();return}
+ if(a==='import-local'){await importLocal();return}
  if(a==='goto'){goto(b.dataset.view);return}
  const PUBLIC_ACTIONS=new Set(['export-csv','export-round-stats','export-summary','export-json']);
  if(!cloudReady){notify('共有データの読み込みが完了するまでお待ちください。',true);return}
  if(!isAdmin()&&!PUBLIC_ACTIONS.has(a)){notify('この操作は管理者ログインが必要です。',true);return}
  switch(a){
- case 'save-game':record();break;case 'reset-entry':if(confirm('対局の入力値をリセットしますか？')){initialDraft();render()}break;case 'rotate-entry':{let old=draft.seats.slice(),nw=rotate(old);draft.seats=nw;for(let id of nw){draft.scores[id]??=Number(rulesOf().start);}render();break}
+ case 'save-game':record();break;case 'reset-entry':if(await showConfirmModal('対局の入力値をリセットしますか？')){initialDraft();render()}break;case 'rotate-entry':{let old=draft.seats.slice(),nw=rotate(old);draft.seats=nw;for(let id of nw){draft.scores[id]??=Number(rulesOf().start);}render();break}
  case 'cancel-edit':initialDraft();render();break;
  case 'edit-game':{let g=st.games.find(x=>x.id===id);if(!g)return;draft={editing:g.id,date:g.date,note:g.note||'',seats:g.seats.slice(),scores:{...g.scores},rules:clone(g.rules)};goto('entry');break}
- case 'delete-game':{let g=st.games.find(x=>x.id===id);if(!g)return;if(confirm(`${g.date}の対局記録を削除しますか？`)){st.games=st.games.filter(x=>x.id!==id);save();render();notify('記録を削除しました')}break}
+ case 'delete-game':{let g=st.games.find(x=>x.id===id);if(!g)return;if(await showConfirmModal(`${g.date}の対局記録を削除しますか？`)){st.games=st.games.filter(x=>x.id!==id);save();render();notify('記録を削除しました')}break}
  case 'export-csv':csv();break;case 'export-round-stats':exportRoundStats();break;case 'export-summary':summaryCSV();break;case 'export-json':backup();break;case 'import-json':document.getElementById('import-file').click();break;
- case 'preset':applyPreset(b.dataset.preset);break;
+ case 'preset':await applyPreset(b.dataset.preset);break;
  case 'board-open':if(st.pointTable?.ended&&['ron','tsumo','draw'].includes(b.dataset.panel)){notify('終局済みのため新しい局を記録できません。',true);break}boardPanel=b.dataset.panel;render();if(boardPanel==='draw')syncBoardNotenPreview();document.getElementById('live-editor')?.scrollIntoView({block:'nearest',behavior:'smooth'});break;
  case 'projection-toggle':projectionMode=!projectionMode;render();break;
  case 'board-close':boardPanel='';render();break;
- case 'board-reach':case 'board-ron-save':case 'board-tsumo-save':case 'board-draw-save':case 'board-manual-save':case 'board-all-save':case 'board-pot-save':case 'board-finish-save':case 'board-edit-save':boardAction(a,id);break;
+ case 'board-reach':case 'board-ron-save':case 'board-tsumo-save':case 'board-draw-save':case 'board-manual-save':case 'board-all-save':case 'board-pot-save':case 'board-finish-save':case 'board-edit-save':await boardAction(a,id);break;
  case 'new-point':pointStart();break;case 'transfer':case 'pay-all':case 'reach':case 'take-pot':case 'undo-point':{let f=document.getElementById('point-from'),t=document.getElementById('point-to'),m=document.getElementById('point-amount');if(f){pointsControls={from:Number(f.value),to:Number(t.value),amount:Number(m.value)}}operatePoint(a);break}
- case 'point-to-entry':pointToEntry();break;case 'reset-point':if(confirm('点棒管理の履歴を終了・削除しますか？ 事前に対局入力へ反映することをおすすめします。')){st.pointTable=null;boardPanel='';save();render()}break;
+ case 'point-to-entry':pointToEntry();break;case 'reset-point':if(await showConfirmModal('点棒管理の履歴を終了・削除しますか？ 事前に対局入力へ反映することをおすすめします。')){st.pointTable=null;boardPanel='';save();render()}break;
  case 'pick-tile':{const code=b.dataset.tile;if(!Object.prototype.hasOwnProperty.call(TILE_LABELS,code))break;const type=document.getElementById('member-icon-type')?.value;document.getElementById('member-tile-choice').value=(type==='regular'?'tile-regular:':'tile:')+code;document.querySelectorAll('.tile-option').forEach(x=>{const selected=x.dataset.tile===code;x.classList.toggle('selected',selected);x.setAttribute('aria-pressed',String(selected))});syncMemberIconMode();break}
- case 'member-edit':memberEdit=id;render();document.getElementById('member-name')?.focus();break;case 'member-cancel':memberEdit=null;render();break;case 'member-delete':{if(st.players.length<=nPlayers(st.settings)){notify('最低人数を下回るため削除できません',true);return}let p=pl(id);if(st.games.some(g=>g.seats.includes(id))){notify('過去の対局に参加したメンバーは削除できません。名前の編集をご利用ください。',true);return}if(st.pointTable?.seats.includes(id)){notify('点棒管理中のメンバーは削除できません',true);return}if(confirm(`${p.name}を削除しますか？`)){st.players=st.players.filter(p=>p.id!==id);initialDraft();save();render()}break}
- case 'clear-all':{if(confirm('全ての記録・メンバー・設定を初期化します。この操作は元に戻せません。バックアップは保存しましたか？')&&confirm('最終確認：全データを削除しますか？')){st=defaults();initialDraft();save();goto('overview');notify('初期化しました')}break}
+ case 'member-edit':memberEdit=id;render();document.getElementById('member-name')?.focus();break;case 'member-cancel':memberEdit=null;render();break;case 'member-delete':{if(st.players.length<=nPlayers(st.settings)){notify('最低人数を下回るため削除できません',true);return}let p=pl(id);if(st.games.some(g=>g.seats.includes(id))){notify('過去の対局に参加したメンバーは削除できません。名前の編集をご利用ください。',true);return}if(st.pointTable?.seats.includes(id)){notify('点棒管理中のメンバーは削除できません',true);return}if(await showConfirmModal(`${p.name}を削除しますか？`)){st.players=st.players.filter(p=>p.id!==id);initialDraft();save();render()}break}
+ case 'clear-all':{if((await showConfirmModal('全ての記録・メンバー・設定を初期化します。この操作は元に戻せません。バックアップは保存しましたか？'))&&(await showConfirmModal('最終確認：全データを削除しますか？'))){st=defaults();initialDraft();save();goto('overview');notify('初期化しました')}break}
  }});
- document.addEventListener('change',e=>{let x=e.target;if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(!isAdmin())return;if(['member-icon-type','member-photo'].includes(x.id)){syncMemberIconMode();return}if(x.id==='board-winner'){syncBoardScoringChoice('winner');return}if(x.id==='board-han'){syncBoardScoringChoice('han');return}if(x.dataset.boardTenpai!==undefined||x.id==='board-noten'){syncBoardNotenPreview();return}if(x.dataset.historicRule!==undefined){changeHistoricRule(x.dataset.historicRule,x.value);return}if(x.dataset.historicUma!==undefined){changeHistoricRule('uma',x.value);return}if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(x.dataset.entry){let k=x.dataset.entry,id=x.dataset.id;if(k==='seat'){let i=Number(x.dataset.seat),old=draft.seats[i],selected=x.value,j=draft.seats.indexOf(selected);draft.seats[i]=selected;if(j>=0&&j!==i)draft.seats[j]=old;for(let p of draft.seats){draft.scores[p]??=Number(rulesOf().start);}render()}else {draft.scores[id]=Number(x.value);syncEntry()}return}if(x.id==='entry-date'){draft.date=x.value;return}if(x.id==='entry-note'){draft.note=x.value;return}if(x.dataset.rule){updateRule(x.dataset.rule,x.value);return}if(x.dataset.umaPreset!==undefined){setUmaPreset(x.value);return}});
- document.addEventListener('input',e=>{let x=e.target;if(!isAdmin())return;if(x.id==='board-noten')syncBoardNotenPreview();if(x.dataset.entry==='score'){draft.scores[x.dataset.id]=Number(x.value);syncEntry()}if(x.id==='entry-note')draft.note=x.value;if(x.id==='entry-date')draft.date=x.value});
+ document.addEventListener('change',e=>{let x=e.target;if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(!isAdmin())return;if(['member-icon-type','member-photo'].includes(x.id)){syncMemberIconMode();return}if(x.id==='board-winner'){syncBoardScoringChoice('winner');return}if(x.id==='board-han'){syncBoardScoringChoice('han');return}if(x.dataset.boardTenpai!==undefined||x.id==='board-noten'){syncBoardNotenPreview();return}if(x.dataset.historicRule!==undefined){changeHistoricRule(x.dataset.historicRule,x.value);return}if(x.dataset.historicUma!==undefined){changeHistoricRule('uma',x.value);return}if(x.id==='history-filter'){activeFilter=x.value;render();return}if(x.id==='round-stats-filter'){roundStatsFilter=x.value;render();return}if(x.dataset.entry){let k=x.dataset.entry,id=x.dataset.id;if(k==='seat'){let i=Number(x.dataset.seat),old=draft.seats[i],selected=x.value,j=draft.seats.indexOf(selected);draft.seats[i]=selected;if(j>=0&&j!==i)draft.seats[j]=old;for(let p of draft.seats){draft.scores[p]??=Number(rulesOf().start);}render()}else {draft.scores[id]=x.value===''?'':Number(x.value);syncEntry()}return}if(x.id==='entry-date'){draft.date=x.value;return}if(x.id==='entry-note'){draft.note=x.value;return}if(x.dataset.rule){updateRule(x.dataset.rule,x.value);return}if(x.dataset.umaPreset!==undefined){setUmaPreset(x.value);return}});
+ document.addEventListener('input',e=>{let x=e.target;if(!isAdmin())return;if(x.id==='board-noten')syncBoardNotenPreview();if(x.dataset.entry==='score'){draft.scores[x.dataset.id]=x.value===''?'':Number(x.value);syncEntry()}if(x.id==='entry-note')draft.note=x.value;if(x.id==='entry-date')draft.date=x.value});
  document.getElementById('app').addEventListener('submit',async e=>{
  if(e.target.id==='config-form'){
   e.preventDefault();
